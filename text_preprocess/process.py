@@ -1,5 +1,9 @@
+import sys
+sys.path.append("../util")
+from mongodb_connector import DBConnector
 
 from optparse import OptionParser
+from select_text import TextProcess
 
 def parse_options():
 		parser = OptionParser()
@@ -13,6 +17,9 @@ def main():
 		opt = parse_options()
 		if opt is None:
 				return
+
+		text_p = TextProcess(batch_size=10)
+		text_p.preprocess()
 
 if __name__ == '__main__':
 		main()
