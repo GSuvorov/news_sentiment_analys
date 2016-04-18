@@ -10,37 +10,59 @@ from mongodb_connector import DBConnector
 #number_re = r'-?(\d+(?[\.,]\d+))';
 
 class TextProcess():
-	def __read_from_file__(self, filename, store):
+	def __read_from_file__(self, filename, array_like=True):
 		try:
+			store = {}
 			f = open(filename, "r")
-			lines = f.readlines()
-			for l in lines:
-				l.replace("\n", "")
-				store.extend([w.lower().decode('utf-8') for w in l.split()])
+			for line in f.readlines():
+				line.replace("\n", "")
+				words = [w.decode('utf-8').lower() for w in line.split()]
+
+				if array_like == True:
+					if 'all' not in store.keys():
+						store['all'] = [words]
+					else:
+						for w in words:
+							if w not in store['all']:
+								store['all'].append(w)
+					continue
+
+				if words[0] not in store.keys():
+					store[words[0]] = words[1:]
+					continue
 
 			f.close()
-			return
+
+			if array_like == True:
+				return store['all']
+
+			return store
 		except Exception as e:
 			print "ERR: {}".format(e)
 			return
 
-	def __read_stop_words__(self, stop_words):
-		self.stop_words = []
-		self.__read_from_file__(stop_words, self.stop_words)
-
-	def __punct_exclude__(self, punct):
-		self.punct = []
-		self.__read_from_file__(punct, self.punct)
-
 	def __init__(self, batch_size=50, debug=False, data_dir="data", \
-				 stop_words="stop_words.txt", punct="punct_symb.txt", sent_end="sentence_end.txt"):
+				 stop_words="stop_words.txt", punct="punct_symb.txt", sent_end="sentence_end.txt", \
+				 abbr="abbr.txt"):
 		self.db_cn = DBConnector()
 		self.iterator = None
 		self.batch_size = batch_size
 		self.debug = debug
 
-		self.__read_stop_words__(data_dir + "/" + stop_words)
-		self.__punct_exclude__(data_dir + "/" + punct)
+		self.stop_words = self.__read_from_file__(data_dir + "/" + stop_words)
+		self.punct = self.__read_from_file__(data_dir + "/" + punct)
+		self.abbr = self.__read_from_file__(data_dir + "/" + abbr, False)
+
+	def sentence_process(self, sent):
+		new_sent = []
+		for i in range(len(sent)):
+			if sent[i] not in self.abbr.keys() and len(sent[i]) > 0:
+				new_sent.append(sent[i])
+				continue
+			new_sent.extend(self.abbr[sent[i]])
+
+		# TODO: remove all (, ) + punct or 1 symb word
+		return new_sent
 
 	def split_text_to_sent(self, text):
 		sent_detector = nltk.data.load('/Users/Kseniya/nltk_data/tokenizers/punkt/polish.pickle')
@@ -54,42 +76,42 @@ class TextProcess():
 			# remove punctuation symbs
 			for t in tokens:
 				if t == "//":
-					new_sent.append(new_tokens)
+					new_sent.append(self.sentence_process(new_tokens))
 					new_tokens = []
 					continue
 
-				if  t.lower() not in self.stop_words and \
-					t.lower() not in self.punct:
+				t = t.lower()
+				if  t not in self.stop_words and \
+					t not in self.punct:
 					new_tokens.append(t)
 
-			new_sent.append(new_tokens)
+			new_sent.append(self.sentence_process(new_tokens))
 
-		if self.debug == False:
+		if self.debug is False:
 			return new_sent
 
 		print text
 		for s in new_sent:
 			print "DEB: Sent: ========="
 			for t in s:
-				print t.encode('utf-8')
+				print t
 
 		return new_sent
 
 	def get_texts(self, start, end_limit):
 		all_texts = []
-		i = start - 1
-		while (start < end_limit):
+		assert(start > 0)
+		i =  start - 1
+		while (end_limit == -1 or start < end_limit):
 			end = start + self.batch_size - 1
-			if end > end_limit:
+			if end > end_limit and end_limit != -1:
 				end = end_limit
 
 			t_cursor = self.db_cn.select_news_items(start, end, self.batch_size)
 			if t_cursor is None:
 				break
 
-			if i == t_cursor.count():
-				break
-
+			i_prev = i
 			for t in t_cursor:
 				i += 1
 				if self.debug and (i % 100 == 0):
@@ -104,12 +126,24 @@ class TextProcess():
 
 				all_texts.append(self.split_text_to_sent(t['title']))
 
+			if i_prev == i:
+				break
+
 			start = end + 1
 
 		return all_texts
 
+	# TODO: remove, use for analys
+	def get_fixed_word_len(self, texts, low_len, up_len):
+		for text in texts:
+			for sent in text:
+				for w in sent:
+					if len(w) <= up_len and len(w) >= low_len:
+						print w
+
 	def preprocess(self):
-		texts = self.get_texts(2, 4)
+		texts = self.get_texts(1, -1)
+		return texts
 
 	def store_into_file(self, filename):
 		try:
