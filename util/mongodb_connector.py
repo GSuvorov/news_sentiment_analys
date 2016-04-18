@@ -84,6 +84,9 @@ class DBConnector():
 			return None
 
 	def select_news_items(self, start, end, batch_size):
+		if end == -1:
+			end = self.db.news_item.count()
+
 		if start < 0 or start > end:
 			print "ERR: incorrect start index {}".format(start)
 			return None
