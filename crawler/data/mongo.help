@@ -1,0 +1,7 @@
+to create db
+mongo localhost:27017/test myscript.js
+
+to start mongodb 
+mongod --dbpath <path to db> (data/db)
+
+
