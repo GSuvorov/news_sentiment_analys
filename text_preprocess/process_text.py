@@ -3,11 +3,14 @@ from __future__ import division
 import re
 import sys
 sys.path.append("../util")
+sys.path.append("../util/numword/")
 
 import nltk
 from nltk import word_tokenize
 from nltk.corpus import stopwords
+# from util
 from mongodb_connector import DBConnector
+from numword_ru import NumWordRU
 
 sent_re = r'([\.\?\!]|//)\s*[A-ZА-ЯёЁ]'
 percent_re = r'(\d+\s*%)'
@@ -71,7 +74,9 @@ class TextProcess():
 		self.sent_re = re.compile(sent_re)
 		self.percent_re = re.compile(percent_re)
 		self.date_re = re.compile(date_re)
+
 		self.number_re = re.compile(number_re)
+		self.numword = NumWordRU()
 
 	def split_dash_abbr(self, token):
 		pos = token.find('-')
@@ -88,6 +93,35 @@ class TextProcess():
 			return [token]
 
 		return [token[:pos], token[pos + 1:]]
+
+	def convert_numb_to_word(self, token):
+		try:
+			for m in self.number_re.finditer(token.encode('utf-8')):
+				return self.numword.cardinal(float(m.group()))
+		except Exception as e:
+			print "ERR: failed to convert {} to float: {}".format(token.encode('utf-8'), e)
+			return None
+
+	def text_features_extract(self, sentences, features):
+		new_sentences = []
+		for s in sentences:
+			new_tokens = []
+			for w in s:
+				numb_str = self.convert_numb_to_word(w)
+				if numb_str != None:
+					if 'number' not in features.keys():
+						features['number'] = 1
+					else:
+						features['number'] += 1
+
+						new_tokens.extend(numb_str.split())
+						continue
+
+				new_tokens.append(w)
+
+			new_sentences.append(new_tokens)
+
+		return new_sentences
 
 	def split_sent_to_tokens(self, sent):
 		tokens = []
@@ -121,7 +155,7 @@ class TextProcess():
 	# TODO: convert numbers to words
 	# TODO: feature extraction: numbers, percents, dates
 	# TODO: normalization / stemming?
-	def split_text_to_sent(self, text, features):
+	def split_text_to_sent(self, text):
 		sentences = []
 		start_pos = 0
 		text = text.encode('utf-8')
@@ -171,13 +205,14 @@ class TextProcess():
 
 				features = {}
 				for f in news_schema.keys():
-					features[f] = {'text': '', 'feature': ''}
+					features[f] = {'text': '', 'feature': {}}
 
 					if f not in t.keys():
 						continue
 
 					if news_schema[f] == 'text':
-						features[f]['text'] = self.split_text_to_sent(t[f], features[f]['feature'])
+						features[f]['text'] = self.split_text_to_sent(t[f])
+						features[f]['text'] = self.text_features_extract(features[f]['text'], features[f]['feature'])
 					elif news_schema[f] == 'string':
 						features[f]['text'] = t[f]
 
