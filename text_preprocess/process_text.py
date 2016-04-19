@@ -1,3 +1,4 @@
+# coding=utf-8
 from __future__ import division
 import re
 import sys
@@ -5,9 +6,21 @@ sys.path.append("../util")
 
 import nltk
 from nltk import word_tokenize
+from nltk.corpus import stopwords
 from mongodb_connector import DBConnector
 
-#number_re = r'-?(\d+(?[\.,]\d+))';
+sent_re = r'([\.\?\!]|//)\s*[A-ZА-ЯёЁ]'
+percent_re = r'(\d+\s*%)'
+date_re = r'((?:(?:[1-2][0-9])|(?:3[0-1])|(?:[1-9]))\s*(?:(?:август)|(?:сентябр)|(?:октябр)|(?:ноябр)|(?:декабр)|(?:январ)|(?:феврал)|(?:март)|(?:апрел)||(?:ма)|(?:июн)|(?:июл)){1}[а-яА-ЯёЁ]*)'
+number_re = r'(\-?\d+[\.,]?\d*)'
+
+news_schema = {
+	'title':	'text',
+	'text':		'text',
+	'summary':	'text',
+	'term':		'string',
+	'authors':	'string'
+}
 
 class TextProcess():
 	def __read_from_file__(self, filename, array_like=True):
@@ -20,7 +33,7 @@ class TextProcess():
 
 				if array_like == True:
 					if 'all' not in store.keys():
-						store['all'] = [words]
+						store['all'] = words
 					else:
 						for w in words:
 							if w not in store['all']:
@@ -50,53 +63,85 @@ class TextProcess():
 		self.debug = debug
 
 		self.stop_words = self.__read_from_file__(data_dir + "/" + stop_words)
+		self.stop_words.extend(stopwords.words('russian'))
+
 		self.punct = self.__read_from_file__(data_dir + "/" + punct)
 		self.abbr = self.__read_from_file__(data_dir + "/" + abbr, False)
 
-	def sentence_process(self, sent):
-		new_sent = []
-		for i in range(len(sent)):
-			if sent[i] not in self.abbr.keys() and len(sent[i]) > 0:
-				new_sent.append(sent[i])
-				continue
-			new_sent.extend(self.abbr[sent[i]])
+		self.sent_re = re.compile(sent_re)
+		self.percent_re = re.compile(percent_re)
+		self.date_re = re.compile(date_re)
+		self.number_re = re.compile(number_re)
 
-		# TODO: remove all (, ) + punct or 1 symb word
-		return new_sent
+	def split_dash_abbr(self, token):
+		pos = token.find('-')
+		if pos == -1:
+			return [token]
 
-	def split_text_to_sent(self, text):
-		sent_detector = nltk.data.load('/Users/Kseniya/nltk_data/tokenizers/punkt/polish.pickle')
-		sentences = sent_detector.tokenize(text.strip())
+		if pos == 1 and len(token) == 3:
+			return None
 
-		new_sent = []
-		for s in sentences:
-			tokens = word_tokenize(text)
-			new_tokens = []
+		if token[:pos].isdigit() and token[pos + 1:].isdigit():
+			return [token[:pos], token[pos + 1:]]
+
+		if pos < 2 or pos > 4 or len(token) - pos - 1 < 2 or len(token) - pos - 1 > 4:
+			return [token]
+
+		return [token[:pos], token[pos + 1:]]
+
+	def split_sent_to_tokens(self, sent):
+		tokens = []
+		pattern = '|'.join(map(re.escape, self.punct))
+		for t in word_tokenize(sent.decode('utf-8')):
+			t = t.lower()
 			# remove stop words
+			if  t in self.stop_words:
+				continue
+
 			# remove punctuation symbs
-			for t in tokens:
-				if t == "//":
-					new_sent.append(self.sentence_process(new_tokens))
-					new_tokens = []
-					continue
+			t = ''.join(re.split(pattern, t))
 
-				t = t.lower()
-				if  t not in self.stop_words and \
-					t not in self.punct:
-					new_tokens.append(t)
+			if len(t) < 2:
+				continue
 
-			new_sent.append(self.sentence_process(new_tokens))
+			# dash abbrs
+			dash_tokens = self.split_dash_abbr(t)
+			if dash_tokens is None:
+				continue
+
+			# ordinary abbrs
+			for d in dash_tokens:
+				if d in self.abbr.keys():
+					tokens.extend(self.abbr[d])
+				else:
+					tokens.append(d)
+
+		return tokens
+
+	# TODO: convert numbers to words
+	# TODO: feature extraction: numbers, percents, dates
+	# TODO: normalization / stemming?
+	def split_text_to_sent(self, text, features):
+		sentences = []
+		start_pos = 0
+		text = text.encode('utf-8')
+		for m in self.sent_re.finditer(text):
+			#print m.group() + ' ' + str(m.start())
+			sentences.append(self.split_sent_to_tokens(text[start_pos:m.start()]))
+			start_pos = m.start() + 1
+
+		if start_pos < len(text):
+			sentences.append(self.split_sent_to_tokens(text[start_pos:]))
 
 		if self.debug is False:
-			return new_sent
+			return sentences
 
-		print text
-		for s in new_sent:
+		for s in sentences:
 			print "DEB: Sent: ========="
 			for t in s:
 				print t
 
-		return new_sent
+		return sentences
 
 	def get_texts(self, start, end_limit):
 		all_texts = []
@@ -124,7 +169,19 @@ class TextProcess():
 				if (len(t['text']) == 0):
 					continue
 
-				all_texts.append(self.split_text_to_sent(t['title']))
+				features = {}
+				for f in news_schema.keys():
+					features[f] = {'text': '', 'feature': ''}
+
+					if f not in t.keys():
+						continue
+
+					if news_schema[f] == 'text':
+						features[f]['text'] = self.split_text_to_sent(t[f], features[f]['feature'])
+					elif news_schema[f] == 'string':
+						features[f]['text'] = t[f]
+
+				all_texts.append(features)
 
 			if i_prev == i:
 				break
@@ -134,16 +191,16 @@ class TextProcess():
 		return all_texts
 
 	# TODO: remove, use for analys
-	def get_fixed_word_len(self, texts, low_len, up_len):
-		for text in texts:
-			for sent in text:
+	def get_fixed_word_len(self, texts_features, low_len, up_len):
+		for text_f in texts_features:
+			for sent in text_f['text']['text']:
 				for w in sent:
 					if len(w) <= up_len and len(w) >= low_len:
 						print w
 
 	def preprocess(self):
-		texts = self.get_texts(1, -1)
-		return texts
+		texts_features = self.get_texts(1, 5)
+		return texts_features
 
 	def store_into_file(self, filename):
 		try:
