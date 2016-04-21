@@ -8,9 +8,12 @@ from process_text import TextProcess
 def parse_options():
 		parser = OptionParser()
 		parser.add_option("-d", "--debug", dest="debug",
-						  help="debug mode", action="store_false")
+						  help="debug mode", action="store_true")
 
 		(opt, args) = parser.parse_args()
+		if opt.debug is None:
+			opt.debug = False
+
 		return opt
 
 def main():
@@ -18,8 +21,7 @@ def main():
 		if opt is None:
 				return
 
-		# TODO change to 10 
-		text_p = TextProcess(batch_size=1, debug=opt.debug)
+		text_p = TextProcess(batch_size=10, debug=opt.debug)
 
 		#text_p.process_from_file("text_from_db.txt")
 		#text_p.store_into_file("text_form_db.txt")

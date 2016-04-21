@@ -18,6 +18,7 @@ percent_re = r'(\d(?:[\.,]\d)\d*\s*%)'
 date_re = r"(?P<date>(([12]\d|0[1-9]|3[01]|[1-9])\s+(август|сентябр|октябр|ноябр|декабр|январ|феврал|март|апрел|ма|июн|июл)[а-яА-Я]*))"
 dd_mm_yy_re= r'(((0[1-9]|[12]\d|3[01])\.(0[13578]|1[02])\.((19|[2-9]\d)\d{2}))|((0[1-9]|[12]\d|30)\.(0[13456789]|1[012])\.((19|[2-9]\d)\d{2}))|((0[1-9]|1\d|2[0-8])\.02\.((19|[2-9]\d)\d{2}))|(29\.02\.((1[6-9]|[2-9]\d)(0[48]|[2468][048]|[13579][26])|((16|[2468][048]|[3579][26])00))))'
 number_re = r'(\-?\d+[\.,]?\d*)'
+time_re = r'((?:1?[0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?)'
 
 news_schema = {
 	'title':	'text',
@@ -81,6 +82,11 @@ class TextProcess():
 				'remove':	True
 			},
 			{
+				'name':		'time',
+				're':		re.compile(time_re),
+				'remove':	True
+			},
+			{
 				'name':		'date',
 				're':		re.compile(date_re),
 				'remove':	False
@@ -101,18 +107,46 @@ class TextProcess():
 	def split_dash_abbr(self, token):
 		pos = token.find('-')
 		if pos == -1:
-			return [token]
+			pos = token.find('—'.decode('utf-8'))
+			if pos == -1:
+				return [token]
 
-		if pos == 1 and len(token) == 3:
+		if pos == 0 and len(token) <= 5:
 			return None
+
+		if pos < 3:
+			if len(token) - pos - 1 <= 2:
+				return None
+			else:
+				return token[pos + 1:]
 
 		if token[:pos].isdigit() and token[pos + 1:].isdigit():
 			return [token[:pos], token[pos + 1:]]
 
-		if pos < 2 or pos > 4 or len(token) - pos - 1 < 2 or len(token) - pos - 1 > 4:
+		if pos > 4 and len(token) - pos - 1 >= 4:
 			return [token]
 
+		if len(token) == pos + 1:
+			return token[:pos]
+
+		if len(token) - pos - 1 <= 2:
+			if pos < 2:
+				return None
+			else:
+				return [token[:pos]]
+
 		return [token[:pos], token[pos + 1:]]
+
+	def __numb_to_word__(self, string):
+		number_str = string.replace(',', '.')
+		try:
+			index = number_str.index('.')
+			if index != -1 and (len(number_str) - 4 - index) > 0:
+				number_str = number_str[: - (len(number_str) - 4 - index)]
+		except:
+			index = -1
+
+		return self.numword.cardinal(float(number_str))
 
 	# XXX: extract features as dates: date / dd_mm_yy
 	def __split_by_regexp__(self, re, string, feature, name, remove=True):
@@ -135,7 +169,7 @@ class TextProcess():
 				feature[name] += 1
 
 			if remove == True or \
-			   name == 'number' or name == 'percent':
+			   name == 'number' or name == 'percent' or name == 'time':
 				if m_start > 0 and len(tokens) == 0:
 					tokens.append(string[:m_start])
 				else:
@@ -147,7 +181,7 @@ class TextProcess():
 			if name == 'number':
 				try:
 					#print "TEST: process number {}".format(string[m_start : m_end])
-					number_str = self.numword.cardinal(float(string[m_start : m_end]))
+					number_str = self.__numb_to_word__(string[m_start : m_end])
 					tokens.append(number_str.encode('utf-8'))
 				except Exception as e:
 					print "ERR: failed to convert {} to float: {}".format(string[m_start : m_end], e)
@@ -157,13 +191,25 @@ class TextProcess():
 				#print "TEST: process percent {}".format(string[m_start : m_end])
 				percent_str = string[m_start : m_end]
 				percent_str = percent_str.replace('%', '').strip()
-				percent_str = percent_str.replace(',', '.')
 				try:
-					percent_str = self.numword.cardinal(float(percent_str))
+					percent_str = self.__numb_to_word__(percent_str)
 					tokens.append(percent_str.encode('utf-8') + ' процент ')
 				except Exception as e:
 					print "ERR: failed to convert {} to float: {}".format(string[m_start : m_end], e)
 
+			if name == 'time':
+				#print "TEST: process time {}".format(string[m_start : m_end])
+				times = string[m_start : m_end].strip().split(':')
+				try:
+					hour = self.numword.cardinal(float(times[0]))
+					mins = self.numword.cardinal(float(times[1]))
+					time_str = hour.encode('utf-8') + ' час ' + mins.encode('utf-8') + ' минута '
+					if len(times) == 3:
+						secs = self.numword.cardinal(float(times[2]))
+						time_str += secs.encode('utf-8') + ' секунда '
+					tokens.append(time_str)
+				except Exception as e:
+					print "ERR: failed to convert {} to time: {}".format(string[m_start : m_end], e)
 
 		if remove or len(tokens) > 0:
 			if prev < len(string):
@@ -201,7 +247,7 @@ class TextProcess():
 			for d in dash_tokens:
 				if d in self.abbr.keys():
 					tokens.extend(self.abbr[d])
-				else:
+				elif d not in self.stop_words and len(d) > 1:
 					tokens.append(d)
 
 		return tokens
@@ -264,7 +310,6 @@ class TextProcess():
 
 					if news_schema[f] == 'text':
 						features[f]['text'] = self.split_text_to_sent(t[f], features[f]['feature'])
-						#features[f]['text'] = self.text_features_extract(features[f]['text'], features[f]['feature'])
 					elif news_schema[f] == 'string':
 						features[f]['text'] = t[f]
 
@@ -283,10 +328,10 @@ class TextProcess():
 			for sent in text_f['text']['text']:
 				for w in sent:
 					if len(w) <= up_len and len(w) >= low_len:
-						print w
+						print w.encode('utf-8')
 
 	def preprocess(self):
-		texts_features = self.get_texts(1, 5)
+		texts_features = self.get_texts(1, -1)
 		return texts_features
 
 	def store_into_file(self, filename):
