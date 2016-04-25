@@ -1,6 +1,7 @@
 # coding=utf-8
 from __future__ import division
 import re
+import string
 import sys
 sys.path.append("../util")
 sys.path.append("../util/numword/")
@@ -21,6 +22,7 @@ date_re = r"(?P<date>(([12]\d|0[1-9]|3[01]|[1-9])\s+(август|сентябр
 dd_mm_yy_re= r'(((0[1-9]|[12]\d|3[01])\.(0[13578]|1[02])\.((19|[2-9]\d)\d{2}))|((0[1-9]|[12]\d|30)\.(0[13456789]|1[012])\.((19|[2-9]\d)\d{2}))|((0[1-9]|1\d|2[0-8])\.02\.((19|[2-9]\d)\d{2}))|(29\.02\.((1[6-9]|[2-9]\d)(0[48]|[2468][048]|[13579][26])|((16|[2468][048]|[3579][26])00))))'
 number_re = r'(\-?\d+[\.,]?\d*)'
 time_re = r'((?:1?[0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?)'
+english_re = r'([a-zA-Z]+(?:\s+[a-zA-Z]+)*)'
 
 class TextProcess():
 	def __read_from_file__(self, filename, array_like=True):
@@ -29,7 +31,7 @@ class TextProcess():
 			f = open(filename, "r")
 			for line in f.readlines():
 				line.replace("\n", "")
-				words = [w.decode('utf-8').lower() for w in line.split()]
+				words = [w.lower().decode('utf-8') for w in line.split()]
 
 				if array_like == True:
 					if 'all' not in store.keys():
@@ -91,6 +93,11 @@ class TextProcess():
 		self.sent_re = re.compile(sent_re)
 		self.failed_to_parse_sentence = 0
 		self.re = [
+			{
+				'name':		'english',
+				're':		re.compile(english_re),
+				'remove':	True
+			},
 			{
 				'name':		'percent',
 				're':		re.compile(percent_re),
@@ -277,7 +284,9 @@ class TextProcess():
 					# already normalized
 					tokens.extend(self.abbr[d])
 				elif d not in self.stop_words and len(d) > 1:
-					tokens.append(self.normalize_word(d))
+					normalized = self.normalize_word(d)
+					if normalized not in self.stop_words:
+						tokens.append(normalized)
 
 		return tokens
 
