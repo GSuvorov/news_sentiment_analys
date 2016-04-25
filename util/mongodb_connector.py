@@ -83,6 +83,36 @@ class DBConnector():
 																			news_item['link']))
 			return None
 
+	def select_news_agent(self):
+		try:
+			nagent_list = self.db.news_agent.find()
+			nagent = {}
+
+			for n in nagent_list:
+				if n['_id'] not in nagent.keys():
+					nagent[str(n['_id'])] = {'ObjectId': n['_id'], 'name':	n['name']}
+
+			return nagent
+		except Exception as e:
+			print "ERR: {}".format(e)
+			return None
+
+	def select_news_subagent(self):
+		try:
+			subagents_list = self.db.news_subagent.find()
+			subagents = {}
+
+			for s in subagents_list:
+				if s['_id'] not in subagents.keys():
+					subagents[str(s['_id'])] = {'ObjectId':			s['_id'],
+												'news_agent_id':	s['news_agent_id'],
+												'subtitle':			s['subtitle']}
+
+			return subagents
+		except Exception as e:
+			print "ERR: {}".format(e)
+			return None
+
 	def select_news_items(self, start, end, batch_size):
 		if end == -1:
 			end = self.db.news_item.count()
