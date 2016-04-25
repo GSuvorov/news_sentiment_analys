@@ -25,9 +25,9 @@ def main():
 
 		#text_p.process_from_file("text_from_db.txt")
 		#text_p.store_into_file("text_form_db.txt")
-		texts = text_p.preprocess()
+		texts = text_p.preprocess(1, -1)
 		print "************"
-		text_p.get_fixed_word_len(texts, 1, 5)
+		text_p.get_fixed_word_len(texts, 1, 3)
 
 if __name__ == '__main__':
 		main()

@@ -4,11 +4,13 @@ import re
 import sys
 sys.path.append("../util")
 sys.path.append("../util/numword/")
+import operator
 
 import nltk
 from nltk import word_tokenize
 from nltk import RegexpTokenizer
 from nltk.corpus import stopwords
+import pymorphy2
 # from util
 from mongodb_connector import DBConnector
 from numword_ru import NumWordRU
@@ -19,14 +21,6 @@ date_re = r"(?P<date>(([12]\d|0[1-9]|3[01]|[1-9])\s+(август|сентябр
 dd_mm_yy_re= r'(((0[1-9]|[12]\d|3[01])\.(0[13578]|1[02])\.((19|[2-9]\d)\d{2}))|((0[1-9]|[12]\d|30)\.(0[13456789]|1[012])\.((19|[2-9]\d)\d{2}))|((0[1-9]|1\d|2[0-8])\.02\.((19|[2-9]\d)\d{2}))|(29\.02\.((1[6-9]|[2-9]\d)(0[48]|[2468][048]|[13579][26])|((16|[2468][048]|[3579][26])00))))'
 number_re = r'(\-?\d+[\.,]?\d*)'
 time_re = r'((?:1?[0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?)'
-
-news_schema = {
-	'title':	'text',
-	'text':		'text',
-	'summary':	'text',
-	'term':		'string',
-	'authors':	'string'
-}
 
 class TextProcess():
 	def __read_from_file__(self, filename, array_like=True):
@@ -60,21 +54,42 @@ class TextProcess():
 			print "ERR: {}".format(e)
 			return
 
+	def __select_news_agent_info__(self):
+		self.news_agent = self.db_cn.select_news_agent()
+		if self.news_agent is None:
+			print "ERR: unable to select news agent info from db"
+			sys.exit(1)
+
+		self.subagent = self.db_cn.select_news_subagent()
+		if self.subagent is None:
+			print "ERR: unable to select subagent info from db"
+			sys.exit(2)
+
+		#for s in self.subagent.keys():
+		#	print "{} -> subtitle {} news_agent {}".format(s, self.subagent[s]['subtitle'].encode('utf-8'),
+		#													  self.news_agent[str(self.subagent[s]['news_agent_id'])]['name'].encode('utf-8'))
+
 	def __init__(self, batch_size=50, debug=False, data_dir="data", \
 				 stop_words="stop_words.txt", punct="punct_symb.txt", sent_end="sentence_end.txt", \
 				 abbr="abbr.txt"):
 		self.db_cn = DBConnector()
+		self.__select_news_agent_info__()
+
 		self.iterator = None
 		self.batch_size = batch_size
 		self.debug = debug
+		self.morphy = pymorphy2.MorphAnalyzer()
 
 		self.stop_words = self.__read_from_file__(data_dir + "/" + stop_words)
-		self.stop_words.extend(stopwords.words('russian'))
+		#self.stop_words.extend(stopwords.words('russian'))
 
 		self.punct = self.__read_from_file__(data_dir + "/" + punct)
 		self.abbr = self.__read_from_file__(data_dir + "/" + abbr, False)
+		for a in self.abbr.keys():
+			self.abbr[a] = [self.morphy.parse(word)[0].normal_form for word in self.abbr[a]]
 
 		self.sent_re = re.compile(sent_re)
+		self.failed_to_parse_sentence = 0
 		self.re = [
 			{
 				'name':		'percent',
@@ -89,12 +104,12 @@ class TextProcess():
 			{
 				'name':		'date',
 				're':		re.compile(date_re),
-				'remove':	False
+				'remove':	True
 			},
 			{
 				'name':		'dd_mm_yy',
 				're':		re.compile(dd_mm_yy_re),
-				'remove':	False
+				'remove':	True
 			},
 			{
 				'name':		'number',
@@ -103,6 +118,7 @@ class TextProcess():
 			}
 		]
 		self.numword = NumWordRU()
+
 
 	def split_dash_abbr(self, token):
 		pos = token.find('-')
@@ -178,7 +194,7 @@ class TextProcess():
 				prev = m_end
 
 			# convert number to word
-			if name == 'number':
+			if name == 'number' and remove == False:
 				try:
 					#print "TEST: process number {}".format(string[m_start : m_end])
 					number_str = self.__numb_to_word__(string[m_start : m_end])
@@ -187,7 +203,7 @@ class TextProcess():
 					print "ERR: failed to convert {} to float: {}".format(string[m_start : m_end], e)
 
 			# remove '%' and convert number to word
-			if name == 'percent':
+			if name == 'percent' and remove == False:
 				#print "TEST: process percent {}".format(string[m_start : m_end])
 				percent_str = string[m_start : m_end]
 				percent_str = percent_str.replace('%', '').strip()
@@ -197,7 +213,7 @@ class TextProcess():
 				except Exception as e:
 					print "ERR: failed to convert {} to float: {}".format(string[m_start : m_end], e)
 
-			if name == 'time':
+			if name == 'time' and remove == False:
 				#print "TEST: process time {}".format(string[m_start : m_end])
 				times = string[m_start : m_end].strip().split(':')
 				try:
@@ -218,18 +234,30 @@ class TextProcess():
 
 		return string
 
+	def normalize_word(self, word):
+		return self.morphy.parse(word)[0].normal_form
+
 	def split_sent_to_tokens(self, sent, features):
 		tokens = []
 		pattern = '|'.join(map(re.escape, self.punct))
 
 		# Process regexp and remove some of them
-		for r in self.re:
-			sent = self.__split_by_regexp__(r['re'], sent, features, r['name'], r['remove'])
+		try:
+			for r in self.re:
+				sent = self.__split_by_regexp__(r['re'], sent, features, r['name'], r['remove'])
 
-		for t in word_tokenize(sent.decode('utf-8')):
+			if isinstance(sent, unicode) is False:
+				sent = sent.decode('utf-8')
+		except:
+			self.failed_to_parse_sentence += 1
+			return None
+
+		assert(isinstance(sent, unicode) == True)
+
+		for t in word_tokenize(sent):
 			t = t.lower()
 			# remove stop words
-			if  t in self.stop_words:
+			if t in self.stop_words:
 				continue
 
 			# remove punctuation symbs
@@ -246,24 +274,29 @@ class TextProcess():
 			# ordinary abbrs
 			for d in dash_tokens:
 				if d in self.abbr.keys():
+					# already normalized
 					tokens.extend(self.abbr[d])
 				elif d not in self.stop_words and len(d) > 1:
-					tokens.append(d)
+					tokens.append(self.normalize_word(d))
 
 		return tokens
 
-	# TODO: normalization / stemming?
 	def split_text_to_sent(self, text, features):
 		sentences = []
 		start_pos = 0
 		text = text.encode('utf-8')
+		prev_fails = self.failed_to_parse_sentence
 		for m in self.sent_re.finditer(text):
 			#print m.group() + ' ' + str(m.start())
-			sentences.append(self.split_sent_to_tokens(text[start_pos:m.start()], features))
+			new_sent = self.split_sent_to_tokens(text[start_pos:m.start()], features)
+			if new_sent != None:
+				sentences.append(new_sent)
 			start_pos = m.start() + 1
 
 		if start_pos < len(text):
-			sentences.append(self.split_sent_to_tokens(text[start_pos:], features))
+			new_sent = self.split_sent_to_tokens(text[start_pos:], features)
+			if new_sent != None:
+				sentences.append(new_sent)
 
 		if self.debug is False:
 			return sentences
@@ -272,6 +305,9 @@ class TextProcess():
 			print "DEB: Sent: ========="
 			for t in s:
 				print t
+
+		if prev_fails < self.failed_to_parse_sentence:
+			print "ERR: failed to parse {} sentences".format(str(self.failed_to_parse_sentence))
 
 		return sentences
 
@@ -283,6 +319,9 @@ class TextProcess():
 			end = start + self.batch_size - 1
 			if end > end_limit and end_limit != -1:
 				end = end_limit
+
+			if i % 10 == 0:
+				print "{} / {}".format(i , end_limit)
 
 			t_cursor = self.db_cn.select_news_items(start, end, self.batch_size)
 			if t_cursor is None:
@@ -301,17 +340,59 @@ class TextProcess():
 				if (len(t['text']) == 0):
 					continue
 
-				features = {}
-				for f in news_schema.keys():
-					features[f] = {'text': '', 'feature': {}}
+				features = {
+					'subagent': None,
+					'news_agent': None,
+					'title': None,
+					'text': None,
+					'summary': None,
+					'authors': None,
+					'term': None
+				}
 
+				# fill subagent and news agent info
+				if 'subagent_id' in t.keys() and \
+					str(t['subagent_id']) in self.subagent.keys():
+					subagent_id = str(t['subagent_id'])
+					features['subagent'] = self.subagent[subagent_id]['subtitle'].encode('utf-8')
+
+					try:
+						features['news_agent'] = self.news_agent[str(self.subagent[subagent_id]['news_agent_id'])]['name'].encode('utf-8')
+					except:
+						print "ERR: unknown/empty news agent"
+				else:
+					print "ERR: unknown/empty subagent"
+
+				# fill other features and process text-type objects
+				for f in features.keys():
 					if f not in t.keys():
 						continue
 
-					if news_schema[f] == 'text':
-						features[f]['text'] = self.split_text_to_sent(t[f], features[f]['feature'])
-					elif news_schema[f] == 'string':
-						features[f]['text'] = t[f]
+					if f in ['text', 'title', 'summary']:
+						# store features only for text
+						if f == 'text':
+							features[f] = self.split_text_to_sent(t[f], features)
+						else:
+							new_features = {}
+							features[f] = self.split_text_to_sent(t[f], new_features)
+					elif type(t[f]) is str:
+						features[f] = t[f]
+					elif isinstance(t[f], unicode):
+						features[f] = t[f].encode('utf-8')
+					else:
+						features[f] = t[f]
+
+				#for f in features:
+				#	if type(features[f]) is str:
+				#		print "{} -> {}".format(f, features[f])
+				#	elif type(features[f]) is int:
+				#		print "{} -> {}".format(f, str(features[f]))
+				#	elif type(features[f]) is list:
+				#		print "{} is list".format(f)
+				#	elif features[f] is None:
+				#		continue
+				#	else:
+				#		print "ERR: unknown type " + f
 
 				all_texts.append(features)
 
@@ -324,14 +405,24 @@ class TextProcess():
 
 	# TODO: remove, use for analys
 	def get_fixed_word_len(self, texts_features, low_len, up_len):
+		words = {}
 		for text_f in texts_features:
-			for sent in text_f['text']['text']:
+			for sent in text_f['text']:
 				for w in sent:
-					if len(w) <= up_len and len(w) >= low_len:
-						print w.encode('utf-8')
+					if len(w) > up_len or len(w) < low_len:
+						continue
+					if w in words.keys():
+						words[w] += 1
+					else:
+						words[w] = 1
 
-	def preprocess(self):
-		texts_features = self.get_texts(1, -1)
+		words_freq = sorted(words.items(), key=operator.itemgetter(1))
+		for w in words_freq:
+			print w[0].encode('utf-8') + ' ' + str(w[1])
+
+	# TODO: frequency of n-gramms
+	def preprocess(self, start_index, end_index):
+		texts_features = self.get_texts(start_index, end_index)
 		return texts_features
 
 	def store_into_file(self, filename):
