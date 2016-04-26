@@ -2,6 +2,7 @@
 from __future__ import division
 import re
 import string
+import json
 import sys
 sys.path.append("../util")
 sys.path.append("../util/numword/")
@@ -146,7 +147,9 @@ class TextProcess():
 		if token[:pos].isdigit() and token[pos + 1:].isdigit():
 			return [token[:pos], token[pos + 1:]]
 
-		if pos > 4 and len(token) - pos - 1 >= 4:
+		if pos > 4 and pos <= 6 \
+		   and len(token) - pos - 1 >= 4 \
+		   and len(token) - pos - 1 <= 6:
 			return [token]
 
 		if len(token) == pos + 1:
@@ -289,6 +292,7 @@ class TextProcess():
 						tokens.append(normalized)
 
 		return tokens
+		#return [t.encode('utf-8') for t in tokens]
 
 	def split_text_to_sent(self, text, features):
 		sentences = []
@@ -363,16 +367,17 @@ class TextProcess():
 				if 'subagent_id' in t.keys() and \
 					str(t['subagent_id']) in self.subagent.keys():
 					subagent_id = str(t['subagent_id'])
-					features['subagent'] = self.subagent[subagent_id]['subtitle'].encode('utf-8')
+					features['subagent'] = self.subagent[subagent_id]['subtitle']
 
 					try:
-						features['news_agent'] = self.news_agent[str(self.subagent[subagent_id]['news_agent_id'])]['name'].encode('utf-8')
+						features['news_agent'] = self.news_agent[str(self.subagent[subagent_id]['news_agent_id'])]['name']
 					except:
 						print "ERR: unknown/empty news agent"
 				else:
 					print "ERR: unknown/empty subagent"
 
 				# fill other features and process text-type objects
+				text_is_empty = False
 				for f in features.keys():
 					if f not in t.keys():
 						continue
@@ -381,27 +386,32 @@ class TextProcess():
 						# store features only for text
 						if f == 'text':
 							features[f] = self.split_text_to_sent(t[f], features)
+							if len(features[f]) <= 2:
+								text_is_empty = True
+								break
 						else:
 							new_features = {}
 							features[f] = self.split_text_to_sent(t[f], new_features)
-					elif type(t[f]) is str:
-						features[f] = t[f]
-					elif isinstance(t[f], unicode):
-						features[f] = t[f].encode('utf-8')
 					else:
 						features[f] = t[f]
 
-				#for f in features:
-				#	if type(features[f]) is str:
-				#		print "{} -> {}".format(f, features[f])
-				#	elif type(features[f]) is int:
-				#		print "{} -> {}".format(f, str(features[f]))
-				#	elif type(features[f]) is list:
-				#		print "{} is list".format(f)
-				#	elif features[f] is None:
-				#		continue
-				#	else:
-				#		print "ERR: unknown type " + f
+				if text_is_empty:
+					continue
+
+				if self.debug is True:
+						for f in features:
+							if type(features[f]) is str:
+								print "{} -> {}".format(f, features[f])
+							elif isinstance(features[f], unicode):
+								print "{} -> {}".format(f, features[f].encode('utf-8'))
+							elif type(features[f]) is int:
+								print "{} -> {}".format(f, str(features[f]))
+							elif type(features[f]) is list:
+								print "{} is list".format(f)
+							elif features[f] is None:
+								continue
+							else:
+								print "ERR: unknown type " + f
 
 				all_texts.append(features)
 
@@ -412,7 +422,7 @@ class TextProcess():
 
 		return all_texts
 
-	# TODO: remove, use for analys
+	# use for analys only
 	def get_fixed_word_len(self, texts_features, low_len, up_len):
 		words = {}
 		for text_f in texts_features:
@@ -429,10 +439,17 @@ class TextProcess():
 		for w in words_freq:
 			print w[0].encode('utf-8') + ' ' + str(w[1])
 
-	# TODO: frequency of n-gramms
 	def preprocess(self, start_index, end_index):
 		texts_features = self.get_texts(start_index, end_index)
 		return texts_features
+
+	def store_as_json(self, texts, out_file):
+		try:
+			f = open(out_file, 'w')
+			f.write(json.dumps(texts, indent=4))
+			f.close()
+		except Exception as e:
+			print "ERR: unable to store as json: " + str(e)
 
 	def store_into_file(self, filename):
 		try:
