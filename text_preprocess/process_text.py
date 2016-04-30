@@ -291,8 +291,10 @@ class TextProcess():
 					if normalized not in self.stop_words:
 						tokens.append(normalized)
 
+		if len(tokens) == 0:
+			return None
+
 		return tokens
-		#return [t.encode('utf-8') for t in tokens]
 
 	def split_text_to_sent(self, text, features):
 		sentences = []
