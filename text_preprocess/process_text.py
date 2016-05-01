@@ -7,6 +7,8 @@ import sys
 sys.path.append("../util")
 sys.path.append("../util/numword/")
 import operator
+import time
+import datetime
 
 import nltk
 from nltk import word_tokenize
@@ -24,6 +26,10 @@ dd_mm_yy_re= r'(((0[1-9]|[12]\d|3[01])\.(0[13578]|1[02])\.((19|[2-9]\d)\d{2}))|(
 number_re = r'(\-?\d+[\.,]?\d*)'
 time_re = r'((?:1?[0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?)'
 english_re = r'([a-zA-Z]+(?:\s+[a-zA-Z]+)*)'
+
+# day of the week
+week_day = [u'понедельник', u'вторник', u'среда', u'четверг', u'пятница', u'суббота', u'воскресение',
+			u'пн', u'пон', u'вт', u'ср', u'чт', u'чет', u'пт', u'пят', u'сб', u'суб', u'вс', u'вос']
 
 class TextProcess():
 	def __read_from_file__(self, filename, array_like=True):
@@ -43,8 +49,8 @@ class TextProcess():
 								store['all'].append(w)
 					continue
 
-				if words[0] not in store.keys():
-					store[words[0]] = words[1:]
+				if words[0].lower() not in store.keys():
+					store[words[0].lower()] = words[1:]
 					continue
 
 			f.close()
@@ -72,11 +78,29 @@ class TextProcess():
 		#	print "{} -> subtitle {} news_agent {}".format(s, self.subagent[s]['subtitle'].encode('utf-8'),
 		#													  self.news_agent[str(self.subagent[s]['news_agent_id'])]['name'].encode('utf-8'))
 
-	def __init__(self, batch_size=50, debug=False, data_dir="data", \
+	def __print__(self, levl, msg):
+		if levl == 'DEB' and self.debug == False:
+			return
+
+		time_stmp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
+		if self.log is None:
+			print "[{}]{}: {}".format(time_stmp, levl, msg)
+		else:
+			self.log.write("[{}]{}: {}\n".format(time_stmp, levl, msg))
+
+	def __init__(self, batch_size=50, debug=False, log=None, data_dir="data", \
 				 stop_words="stop_words.txt", punct="punct_symb.txt", sent_end="sentence_end.txt", \
-				 abbr="abbr.txt"):
+				 abbr="abbr.txt", senti_words="product_senti_rus.txt"):
 		self.db_cn = DBConnector()
 		self.__select_news_agent_info__()
+		self.log = None
+
+		if log != None:
+			try:
+				self.log = open(log, 'a')
+			except Exception as e:
+				self.__print__('ERR', str(e))
+				sys.exit(1)
 
 		self.iterator = None
 		self.batch_size = batch_size
@@ -85,6 +109,12 @@ class TextProcess():
 
 		self.stop_words = self.__read_from_file__(data_dir + "/" + stop_words)
 		#self.stop_words.extend(stopwords.words('russian'))
+
+		# read probably sentiment words
+		# going to use them for additional koef for bigramms
+		self.senti_words = self.__read_from_file__(data_dir + "/" + senti_words, False)
+		for w in self.senti_words.keys():
+			self.senti_words[w] = float(self.senti_words[w][0])
 
 		self.punct = self.__read_from_file__(data_dir + "/" + punct)
 		self.abbr = self.__read_from_file__(data_dir + "/" + abbr, False)
@@ -126,7 +156,27 @@ class TextProcess():
 			}
 		]
 		self.numword = NumWordRU()
+		self.week_day = week_day
 
+		# found features in all texts
+		self.stat = {
+			'token stat': {
+							'abbr':			0,
+							'stop words':	0,
+							'number':		0,
+							'date':			0,
+							'time':			0,
+							'percent':		0,
+							'english':		0,
+							'punct':		0,
+							'cnt':	0,
+			},
+			'bigrams':		0,
+			'sentence cnt':	0,
+			'text cnt':		0,
+			'average sentence per text': 0,
+			'average bigrams per sentence': 0
+		}
 
 	def split_dash_abbr(self, token):
 		pos = token.find('-')
@@ -203,6 +253,12 @@ class TextProcess():
 
 				prev = m_end
 
+			# compute stat
+			if name in self.stat.keys():
+				self.stat['token stat'][name] += 1
+			elif name == 'dd_mm_yy':
+				self.stat['token stat']['date'] += 1
+
 			# convert number to word
 			if name == 'number' and remove == False:
 				try:
@@ -210,7 +266,7 @@ class TextProcess():
 					number_str = self.__numb_to_word__(string[m_start : m_end])
 					tokens.append(number_str.encode('utf-8'))
 				except Exception as e:
-					print "ERR: failed to convert {} to float: {}".format(string[m_start : m_end], e)
+					self.__print__('ERR', "failed to convert {} to float: {}".format(string[m_start : m_end], e))
 
 			# remove '%' and convert number to word
 			if name == 'percent' and remove == False:
@@ -221,7 +277,7 @@ class TextProcess():
 					percent_str = self.__numb_to_word__(percent_str)
 					tokens.append(percent_str.encode('utf-8') + ' процент ')
 				except Exception as e:
-					print "ERR: failed to convert {} to float: {}".format(string[m_start : m_end], e)
+					self.__print__('ERR', "failed to convert {} to float: {}".format(string[m_start : m_end], e))
 
 			if name == 'time' and remove == False:
 				#print "TEST: process time {}".format(string[m_start : m_end])
@@ -235,7 +291,7 @@ class TextProcess():
 						time_str += secs.encode('utf-8') + ' секунда '
 					tokens.append(time_str)
 				except Exception as e:
-					print "ERR: failed to convert {} to time: {}".format(string[m_start : m_end], e)
+					self.__print__('ERR', "failed to convert {} to time: {}".format(string[m_start : m_end], e))
 
 		if remove or len(tokens) > 0:
 			if prev < len(string):
@@ -265,13 +321,21 @@ class TextProcess():
 		assert(isinstance(sent, unicode) == True)
 
 		for t in word_tokenize(sent):
+			self.stat['token stat']['cnt'] += 1
+
 			t = t.lower()
 			# remove stop words
 			if t in self.stop_words:
+				self.stat['token stat']['stop words'] += 1
 				continue
 
 			# remove punctuation symbs
+			prev_len = len(t)
+
 			t = ''.join(re.split(pattern, t))
+
+			if len(t) < prev_len:
+				self.stat['token stat']['punct'] += prev_len - len(t)
 
 			if len(t) < 2:
 				continue
@@ -286,15 +350,28 @@ class TextProcess():
 				if d in self.abbr.keys():
 					# already normalized
 					tokens.extend(self.abbr[d])
+					self.stat['token stat']['abbr'] += 1
 				elif d not in self.stop_words and len(d) > 1:
 					normalized = self.normalize_word(d)
 					if normalized not in self.stop_words:
-						tokens.append(normalized)
+						if normalized in self.week_day:
+							self.stat['token stat']['date'] += 1
+						else:
+							tokens.append(normalized)
+					else:
+						self.stat['token stat']['stop words'] += 1
 
-		if len(tokens) == 0:
+				elif len(d) > 1:
+					self.stat['token stat']['stop words'] += 1
+
+		if len(tokens) <= 1:
 			return None
 
-		return tokens
+		bigrams = [' '.join(tokens[i:i+2]) for i in range(len(tokens) - 1)]
+
+		self.stat['bigrams'] += len(bigrams)
+
+		return bigrams
 
 	def split_text_to_sent(self, text, features):
 		sentences = []
@@ -306,23 +383,25 @@ class TextProcess():
 			new_sent = self.split_sent_to_tokens(text[start_pos:m.start()], features)
 			if new_sent != None:
 				sentences.append(new_sent)
+				self.stat['sentence cnt'] += 1
 			start_pos = m.start() + 1
 
 		if start_pos < len(text):
 			new_sent = self.split_sent_to_tokens(text[start_pos:], features)
 			if new_sent != None:
 				sentences.append(new_sent)
+				self.stat['sentence cnt'] += 1
 
 		if self.debug is False:
 			return sentences
 
 		for s in sentences:
-			print "DEB: Sent: ========="
+			self.__print__('DEB', "Sent: =========")
 			for t in s:
 				print t
 
 		if prev_fails < self.failed_to_parse_sentence:
-			print "ERR: failed to parse {} sentences".format(str(self.failed_to_parse_sentence))
+			self.__print__('ERR', "failed to parse {} sentences".format(str(self.failed_to_parse_sentence)))
 
 		return sentences
 
@@ -346,10 +425,10 @@ class TextProcess():
 			for t in t_cursor:
 				i += 1
 				if self.debug and (i % 100 == 0):
-					print "INF: {}".format(i)
+					print "{}".format(i)
 
 				if 'text' not in t.keys():
-					print "ERR: no text for news"
+					self.__print__('ERR', "no text for news")
 					continue
 
 				if (len(t['text']) == 0):
@@ -362,7 +441,8 @@ class TextProcess():
 					'text': None,
 					'summary': None,
 					'authors': None,
-					'term': None
+					'term': None,
+					'link': None
 				}
 
 				# fill subagent and news agent info
@@ -374,9 +454,9 @@ class TextProcess():
 					try:
 						features['news_agent'] = self.news_agent[str(self.subagent[subagent_id]['news_agent_id'])]['name']
 					except:
-						print "ERR: unknown/empty news agent"
+						self.__print__('ERR', "unknown/empty news agent")
 				else:
-					print "ERR: unknown/empty subagent"
+					self.__print__('ERR', "unknown/empty subagent")
 
 				# fill other features and process text-type objects
 				text_is_empty = False
@@ -400,20 +480,22 @@ class TextProcess():
 				if text_is_empty:
 					continue
 
+				self.stat['text cnt'] += 1
+
 				if self.debug is True:
 						for f in features:
 							if type(features[f]) is str:
-								print "{} -> {}".format(f, features[f])
+								self.__print__('DEB', "{} -> {}".format(f, features[f]))
 							elif isinstance(features[f], unicode):
-								print "{} -> {}".format(f, features[f].encode('utf-8'))
+								self.__print__('DEB', "{} -> {}".format(f, features[f].encode('utf-8')))
 							elif type(features[f]) is int:
-								print "{} -> {}".format(f, str(features[f]))
+								self.__print__('DEB', "{} -> {}".format(f, str(features[f])))
 							elif type(features[f]) is list:
-								print "{} is list".format(f)
+								self.__print__('DEB', "{} is list".format(f))
 							elif features[f] is None:
 								continue
 							else:
-								print "ERR: unknown type " + f
+								self.__print__('ERR', "unknown type " + f)
 
 				all_texts.append(features)
 
@@ -439,7 +521,25 @@ class TextProcess():
 
 		words_freq = sorted(words.items(), key=operator.itemgetter(1))
 		for w in words_freq:
-			print w[0].encode('utf-8') + ' ' + str(w[1])
+			self.__print__('INF', w[0].encode('utf-8') + ' ' + str(w[1]))
+
+	def print_stat(self):
+		if self.stat['text cnt'] == 0:
+			self.__print__('ERR', "No texts have been analized")
+			return
+
+		self.stat['average sentence per text'] = float(self.stat['sentence cnt']) / self.stat['text cnt']
+		self.stat['average bigrams per sentence'] = float(self.stat['bigrams']) / self.stat['sentence cnt']
+
+		for k in self.stat.keys():
+			if type(self.stat[k]) is dict:
+				assert(k == 'token stat')
+				for sub_k in self.stat[k].keys():
+					self.__print__('INF', "{} -> {} / {} ({} %)".format(sub_k, self.stat[k][sub_k], self.stat[k]['cnt'], \
+																		float(self.stat[k][sub_k]) / self.stat[k]['cnt']))
+				continue
+
+			self.__print__('INF', "{} -> {}".format(k, self.stat[k]))
 
 	def preprocess(self, start_index, end_index):
 		texts_features = self.get_texts(start_index, end_index)
@@ -451,17 +551,19 @@ class TextProcess():
 			f.write(json.dumps(texts, indent=4))
 			f.close()
 		except Exception as e:
-			print "ERR: unable to store as json: " + str(e)
+			self.__print__('ERR', "unable to store as json: " + str(e))
 
-	def store_into_file(self, filename):
+	def store_into_file(self, filename, batch_size=0):
+		ext_index = filename.find('.txt')
+		if ext_index != -1:
+			filename = filename[:ext_index]
 		try:
-			f = open(filename, 'w')
+			f = open(filename + '.txt', 'w')
 		except:
-			print "ERR: unable to open file " + filename
+			self.__print__('ERR', "unable to open file " + filename)
 			return None
 
-		if self.debug:
-			print "INF: start storing texts to '{}'".format(filename)
+		self.__print__('DEB', "start storing texts to '{}'".format(filename))
 		start = 0
 		end = 0
 		i = 0
@@ -478,18 +580,32 @@ class TextProcess():
 			for t in t_cursor:
 				i += 1
 				if self.debug and (i % 100 == 0):
-					print "INF: {}".format(i)
+					self.__print__('INF', "{}".format(i))
 
 				if 'text' not in t.keys():
-					print "ERR: no text for news"
+					self.__print__('ERR', "no text for news")
 					continue
 
 				if (len(t['text']) == 0):
 					continue
 
+				if batch_size != 0 and i % batch_size == 0:
+					f.close()
+					new_fname = filename + '_{}.txt'.format(str(i / batch_size)[:-2])
+					try:
+						f = open(new_fname, 'w')
+					except:
+						self.__print__('ERR', "unable to open file " + new_fname)
+						return None
+
 				t['text'].replace("\n", " ");
 				t['text'] += "\n"
-				f.write(t['text'].encode('utf-8'))
+				f.write("========================\n")
+				f.write("Номер текста {}\n".format(str(i)))
+				f.write("Link: {}\n".format(t['link'].encode('utf-8')))
+				f.write("Тема: {}\n".format(t['title'].encode('utf-8')))
+				f.write("Новость:\n{}".format(t['text'].encode('utf-8')))
+				f.write("========================\nОтвет: \n")
 
 			start = end + 1
 
