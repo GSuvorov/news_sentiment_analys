@@ -60,18 +60,18 @@ class TextProcess():
 
 			return store
 		except Exception as e:
-			print "ERR: {}".format(e)
+			self.__print__("ERR", str(e))
 			return
 
 	def __select_news_agent_info__(self):
 		self.news_agent = self.db_cn.select_news_agent()
 		if self.news_agent is None:
-			print "ERR: unable to select news agent info from db"
+			self.__print__("ERR", "unable to select news agent info from db")
 			sys.exit(1)
 
 		self.subagent = self.db_cn.select_news_subagent()
 		if self.subagent is None:
-			print "ERR: unable to select subagent info from db"
+			self.__print__("ERR", "unable to select subagent info from db")
 			sys.exit(2)
 
 		#for s in self.subagent.keys():
@@ -162,17 +162,18 @@ class TextProcess():
 		self.stat = {
 			'token stat': {
 							'abbr':			0,
-							'stop words':	0,
+							'stop_words':	0,
 							'number':		0,
 							'date':			0,
 							'time':			0,
 							'percent':		0,
 							'english':		0,
 							'punct':		0,
+							'senti_words':	0,
 							'cnt':	0,
 			},
 			'bigrams':		0,
-			'sentence cnt':	0,
+			'sentence_cnt':	0,
 			'text cnt':		0,
 			'average sentence per text': 0,
 			'average bigrams per sentence': 0
@@ -239,10 +240,16 @@ class TextProcess():
 				m_start = m.start()
 				m_end = m.end()
 
+			if name == 'dd_mm_yy':
+				name = 'date'
+
 			if name not in feature.keys():
 				feature[name] = 1
 			else:
 				feature[name] += 1
+
+			if remove == True:
+				feature['cnt'] += 1
 
 			if remove == True or \
 			   name == 'number' or name == 'percent' or name == 'time':
@@ -252,12 +259,6 @@ class TextProcess():
 					tokens.append(string[prev : m_start])
 
 				prev = m_end
-
-			# compute stat
-			if name in self.stat.keys():
-				self.stat['token stat'][name] += 1
-			elif name == 'dd_mm_yy':
-				self.stat['token stat']['date'] += 1
 
 			# convert number to word
 			if name == 'number' and remove == False:
@@ -320,22 +321,22 @@ class TextProcess():
 
 		assert(isinstance(sent, unicode) == True)
 
+		has_senti_words = False
 		for t in word_tokenize(sent):
-			self.stat['token stat']['cnt'] += 1
+			features['cnt'] += 1
 
 			t = t.lower()
-			# remove stop words
+			# remove stop_words
 			if t in self.stop_words:
-				self.stat['token stat']['stop words'] += 1
+				features['stop_words'] += 1
 				continue
 
 			# remove punctuation symbs
 			prev_len = len(t)
-
 			t = ''.join(re.split(pattern, t))
-
 			if len(t) < prev_len:
-				self.stat['token stat']['punct'] += prev_len - len(t)
+				features['punct'] += prev_len - len(t)
+				features['cnt'] += prev_len - len(t)
 
 			if len(t) < 2:
 				continue
@@ -345,31 +346,42 @@ class TextProcess():
 			if dash_tokens is None:
 				continue
 
+			features['cnt'] += len(dash_tokens)
 			# ordinary abbrs
 			for d in dash_tokens:
 				if d in self.abbr.keys():
 					# already normalized
 					tokens.extend(self.abbr[d])
-					self.stat['token stat']['abbr'] += 1
-				elif d not in self.stop_words and len(d) > 1:
-					normalized = self.normalize_word(d)
-					if normalized not in self.stop_words:
-						if normalized in self.week_day:
-							self.stat['token stat']['date'] += 1
-						else:
-							tokens.append(normalized)
-					else:
-						self.stat['token stat']['stop words'] += 1
+					features['abbr'] += 1
+					continue
 
-				elif len(d) > 1:
-					self.stat['token stat']['stop words'] += 1
+				if d in self.stop_words:
+					features['stop_words'] += 1
+					continue
+				if len(d) <= 1:
+					continue
+
+				# normalization
+				normalized = self.normalize_word(d)
+				if normalized in self.stop_words:
+					features['stop_words'] += 1
+					continue
+
+				if normalized in self.week_day:
+					features['date'] += 1
+				elif normalized in self.senti_words:
+					features['senti_words'] += 1
+					has_senti_words = True
+
+				tokens.append(normalized)
 
 		if len(tokens) <= 1:
 			return None
 
-		bigrams = [' '.join(tokens[i:i+2]) for i in range(len(tokens) - 1)]
+		if has_senti_words:
+			features['senti_sentence'] += 1
 
-		self.stat['bigrams'] += len(bigrams)
+		bigrams = [' '.join(tokens[i:i+2]) for i in range(len(tokens) - 1)]
 
 		return bigrams
 
@@ -383,22 +395,21 @@ class TextProcess():
 			new_sent = self.split_sent_to_tokens(text[start_pos:m.start()], features)
 			if new_sent != None:
 				sentences.append(new_sent)
-				self.stat['sentence cnt'] += 1
+				features['sentence_cnt'] += 1
 			start_pos = m.start() + 1
 
 		if start_pos < len(text):
 			new_sent = self.split_sent_to_tokens(text[start_pos:], features)
 			if new_sent != None:
 				sentences.append(new_sent)
-				self.stat['sentence cnt'] += 1
+				features['sentence_cnt'] += 1
 
 		if self.debug is False:
 			return sentences
 
 		for s in sentences:
 			self.__print__('DEB', "Sent: =========")
-			for t in s:
-				print t
+			self.__print__('DEB', ' '.join(s).encode('utf-8'))
 
 		if prev_fails < self.failed_to_parse_sentence:
 			self.__print__('ERR', "failed to parse {} sentences".format(str(self.failed_to_parse_sentence)))
@@ -434,16 +445,41 @@ class TextProcess():
 				if (len(t['text']) == 0):
 					continue
 
-				features = {
-					'subagent': None,
-					'news_agent': None,
-					'title': None,
-					'text': None,
-					'summary': None,
-					'authors': None,
-					'term': None,
-					'link': None
+				common_features = {
+					'subagent':		None,
+					'news_agent':	None,
+					'title':		None,
+					'text':			None,
+					'summary':		None,
+					'authors':		None,
+					'term':			None,
+					'link':			None,
 				}
+
+				features_pattern = {
+					'subagent':		None,
+					'news_agent':	None,
+					'title':		None,
+					'text':			None,
+					'summary':		None,
+					'authors':		None,
+					'term':			None,
+					'link':			None,
+					'abbr':			0,
+					'stop_words':	0,
+					'number':		0,
+					'date':			0,
+					'time':			0,
+					'percent':		0,
+					'english':		0,
+					'punct':		0,
+					'senti_words':	0,
+					'senti_sentence': 0,
+					'sentence_cnt':	0,
+					'cnt':			0,
+				}
+
+				features = features_pattern.copy()
 
 				# fill subagent and news agent info
 				if 'subagent_id' in t.keys() and \
@@ -460,20 +496,29 @@ class TextProcess():
 
 				# fill other features and process text-type objects
 				text_is_empty = False
-				for f in features.keys():
+				for f in common_features.keys():
 					if f not in t.keys():
 						continue
 
-					if f in ['text', 'title', 'summary']:
-						# store features only for text
-						if f == 'text':
+					# TODO: title and summary ?
+					# store features only for text
+					if f == 'text':
 							features[f] = self.split_text_to_sent(t[f], features)
 							if len(features[f]) <= 2:
 								text_is_empty = True
 								break
-						else:
-							new_features = {}
-							features[f] = self.split_text_to_sent(t[f], new_features)
+
+							# store common stat
+							for k in self.stat['token stat'].keys():
+								self.stat['token stat'][k] += features[k]
+								# normalize parametrs
+								if k != 'cnt':
+									features[k] = float(features[k]) / features['cnt']
+
+							for s in features[f]:
+								self.stat['bigrams'] += len(s)
+
+							self.stat['sentence_cnt'] += features['sentence_cnt']
 					else:
 						features[f] = t[f]
 
@@ -489,6 +534,8 @@ class TextProcess():
 							elif isinstance(features[f], unicode):
 								self.__print__('DEB', "{} -> {}".format(f, features[f].encode('utf-8')))
 							elif type(features[f]) is int:
+								self.__print__('DEB', "{} -> {}".format(f, str(features[f])))
+							elif type(features[f]) is float:
 								self.__print__('DEB', "{} -> {}".format(f, str(features[f])))
 							elif type(features[f]) is list:
 								self.__print__('DEB', "{} is list".format(f))
@@ -528,8 +575,8 @@ class TextProcess():
 			self.__print__('ERR', "No texts have been analized")
 			return
 
-		self.stat['average sentence per text'] = float(self.stat['sentence cnt']) / self.stat['text cnt']
-		self.stat['average bigrams per sentence'] = float(self.stat['bigrams']) / self.stat['sentence cnt']
+		self.stat['average sentence per text'] = float(self.stat['sentence_cnt']) / self.stat['text cnt']
+		self.stat['average bigrams per sentence'] = float(self.stat['bigrams']) / self.stat['sentence_cnt']
 
 		for k in self.stat.keys():
 			if type(self.stat[k]) is dict:
@@ -608,7 +655,6 @@ class TextProcess():
 				text_cnt += 1
 				step = 80
 				for j in range(0, len(t['text']) , step):
-					#print t['text'][i: i+ step].encode('utf-8')
 					if j + step >= len(t['text']):
 						f.write("{}\n".format(t['text'][j:].encode('utf-8')))
 					else:
