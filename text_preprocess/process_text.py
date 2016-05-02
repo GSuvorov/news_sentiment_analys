@@ -567,6 +567,7 @@ class TextProcess():
 		start = 0
 		end = 0
 		i = 0
+		text_cnt = 0
 		while (True):
 			end = start + self.batch_size - 1
 
@@ -598,14 +599,24 @@ class TextProcess():
 						self.__print__('ERR', "unable to open file " + new_fname)
 						return None
 
-				t['text'].replace("\n", " ");
-				t['text'] += "\n"
 				f.write("========================\n")
 				f.write("Номер текста {}\n".format(str(i)))
 				f.write("Link: {}\n".format(t['link'].encode('utf-8')))
 				f.write("Тема: {}\n".format(t['title'].encode('utf-8')))
-				f.write("Новость:\n{}".format(t['text'].encode('utf-8')))
+				f.write("Новость:\n")
+
+				text_cnt += 1
+				step = 80
+				for j in range(0, len(t['text']) , step):
+					#print t['text'][i: i+ step].encode('utf-8')
+					if j + step >= len(t['text']):
+						f.write("{}\n".format(t['text'][j:].encode('utf-8')))
+					else:
+						f.write("{}\n".format(t['text'][j:j + step].encode('utf-8')))
+
 				f.write("========================\nОтвет: \n")
+
+				print "{}\n".format(str(text_cnt))
 
 			start = end + 1
 
