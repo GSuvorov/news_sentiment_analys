@@ -3,7 +3,7 @@ sys.path.append("../util")
 from mongodb_connector import DBConnector
 
 from optparse import OptionParser
-from process_text import TextProcess
+from news_parser import NewsParser
 
 def parse_options():
 		parser = OptionParser()
@@ -22,7 +22,7 @@ def main():
 				return
 
 		log_fname = "preprocess.log"
-		text_p = TextProcess(batch_size=10, debug=opt.debug, log=log_fname)
+		text_p = NewsParser(batch_size=10, debug=opt.debug, log=log_fname)
 		out_fname = "res.json"
 
 		#text_p.process_from_file("text_from_db.txt")
