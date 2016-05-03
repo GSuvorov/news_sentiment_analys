@@ -15,54 +15,25 @@ from nltk import word_tokenize
 from nltk import RegexpTokenizer
 from nltk.corpus import stopwords
 import pymorphy2
+
+from tokenizer import Tokenizer
+
 # from util
 from mongodb_connector import DBConnector
 from numword_ru import NumWordRU
 
-sent_re = r'([\.\?\!]|//)\s*[A-ZА-ЯёЁ]'
-percent_re = r'(\d(?:[\.,]\d)\d*\s*%)'
-date_re = r"(?P<date>(([12]\d|0[1-9]|3[01]|[1-9])\s+(август|сентябр|октябр|ноябр|декабр|январ|феврал|март|апрел|ма|июн|июл)[а-яА-Я]*))"
-dd_mm_yy_re= r'(((0[1-9]|[12]\d|3[01])\.(0[13578]|1[02])\.((19|[2-9]\d)\d{2}))|((0[1-9]|[12]\d|30)\.(0[13456789]|1[012])\.((19|[2-9]\d)\d{2}))|((0[1-9]|1\d|2[0-8])\.02\.((19|[2-9]\d)\d{2}))|(29\.02\.((1[6-9]|[2-9]\d)(0[48]|[2468][048]|[13579][26])|((16|[2468][048]|[3579][26])00))))'
-number_re = r'(\-?\d+[\.,]?\d*)'
-time_re = r'((?:1?[0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?)'
-english_re = r'([a-zA-Z]+(?:\s+[a-zA-Z]+)*)'
-
-# day of the week
-week_day = [u'понедельник', u'вторник', u'среда', u'четверг', u'пятница', u'суббота', u'воскресение',
-			u'пн', u'пон', u'вт', u'ср', u'чт', u'чет', u'пт', u'пят', u'сб', u'суб', u'вс', u'вос']
+news_features = {
+	'subagent':		None,
+	'news_agent':	None,
+	'title':		None,
+	'text':			None,
+	'summary':		None,
+	'authors':		None,
+	'term':			None,
+	'link':			None,
+}
 
 class TextProcess():
-	def __read_from_file__(self, filename, array_like=True):
-		try:
-			store = {}
-			f = open(filename, "r")
-			for line in f.readlines():
-				line.replace("\n", "")
-				words = [w.lower().decode('utf-8') for w in line.split()]
-
-				if array_like == True:
-					if 'all' not in store.keys():
-						store['all'] = words
-					else:
-						for w in words:
-							if w not in store['all']:
-								store['all'].append(w)
-					continue
-
-				if words[0].lower() not in store.keys():
-					store[words[0].lower()] = words[1:]
-					continue
-
-			f.close()
-
-			if array_like == True:
-				return store['all']
-
-			return store
-		except Exception as e:
-			self.__print__("ERR", str(e))
-			return
-
 	def __select_news_agent_info__(self):
 		self.news_agent = self.db_cn.select_news_agent()
 		if self.news_agent is None:
@@ -105,318 +76,54 @@ class TextProcess():
 		self.iterator = None
 		self.batch_size = batch_size
 		self.debug = debug
-		self.morphy = pymorphy2.MorphAnalyzer()
-
-		self.stop_words = self.__read_from_file__(data_dir + "/" + stop_words)
-		#self.stop_words.extend(stopwords.words('russian'))
-
-		# read probably sentiment words
-		# going to use them for additional koef for bigramms
-		self.senti_words = self.__read_from_file__(data_dir + "/" + senti_words, False)
-		for w in self.senti_words.keys():
-			self.senti_words[w] = float(self.senti_words[w][0])
-
-		self.punct = self.__read_from_file__(data_dir + "/" + punct)
-		self.abbr = self.__read_from_file__(data_dir + "/" + abbr, False)
-		for a in self.abbr.keys():
-			self.abbr[a] = [self.morphy.parse(word)[0].normal_form for word in self.abbr[a]]
-
-		self.sent_re = re.compile(sent_re)
-		self.failed_to_parse_sentence = 0
-		self.re = [
-			{
-				'name':		'english',
-				're':		re.compile(english_re),
-				'remove':	True
-			},
-			{
-				'name':		'percent',
-				're':		re.compile(percent_re),
-				'remove':	True
-			},
-			{
-				'name':		'time',
-				're':		re.compile(time_re),
-				'remove':	True
-			},
-			{
-				'name':		'date',
-				're':		re.compile(date_re),
-				'remove':	True
-			},
-			{
-				'name':		'dd_mm_yy',
-				're':		re.compile(dd_mm_yy_re),
-				'remove':	True
-			},
-			{
-				'name':		'number',
-				're':		re.compile(number_re),
-				'remove':	True
-			}
-		]
-		self.numword = NumWordRU()
-		self.week_day = week_day
 
 		# found features in all texts
 		self.stat = {
-			'token stat': {
-							'abbr':			0,
-							'stop_words':	0,
-							'number':		0,
-							'date':			0,
-							'time':			0,
-							'percent':		0,
-							'english':		0,
-							'punct':		0,
-							'senti_words':	0,
-							'cnt':	0,
-			},
-			'bigrams':		0,
-			'sentence_cnt':	0,
-			'text cnt':		0,
-			'average sentence per text': 0,
-			'average bigrams per sentence': 0
+			'text_cnt':		0,
+			'avg_sentence_per_text': 0,
+			'avg_bigram_per_sentence': 0
 		}
 
-	def split_dash_abbr(self, token):
-		pos = token.find('-')
-		if pos == -1:
-			pos = token.find('—'.decode('utf-8'))
-			if pos == -1:
-				return [token]
+		self.tokenizer = Tokenizer(debug, log, data_dir, stop_words, punct, sent_end, abbr, senti_words)
+		self.stat['token_stat'] = self.tokenizer.get_token_stat_schema()
 
-		if pos == 0 and len(token) <= 5:
+	def compute_final_stat(self):
+		if self.stat['text_cnt'] == 0:
+			self.__print__('ERR', "No texts have been analized")
+			return
+
+		self.stat['avg_sentence_per_text'] = float(self.stat['token_stat']['sentence_cnt']) / self.stat['text_cnt']
+		self.stat['avg_bigram_per_sentence'] = float(self.stat['token_stat']['bigram_cnt']) / self.stat['token_stat']['sentence_cnt']
+
+	def text_to_sent(self, text, features):
+		# text -> [sentence] , sentence -> [bigram]
+		sentences = self.tokenizer.text_to_sent(text)
+		if len(sentences) <= 2:
 			return None
 
-		if pos < 3:
-			if len(token) - pos - 1 <= 2:
-				return None
-			else:
-				return token[pos + 1:]
+		# get extracted features
+		token_features = self.tokenizer.get_token_stat()
 
-		if token[:pos].isdigit() and token[pos + 1:].isdigit():
-			return [token[:pos], token[pos + 1:]]
-
-		if pos > 4 and pos <= 6 \
-		   and len(token) - pos - 1 >= 4 \
-		   and len(token) - pos - 1 <= 6:
-			return [token]
-
-		if len(token) == pos + 1:
-			return token[:pos]
-
-		if len(token) - pos - 1 <= 2:
-			if pos < 2:
-				return None
-			else:
-				return [token[:pos]]
-
-		return [token[:pos], token[pos + 1:]]
-
-	def __numb_to_word__(self, string):
-		number_str = string.replace(',', '.')
-		try:
-			index = number_str.index('.')
-			if index != -1 and (len(number_str) - 4 - index) > 0:
-				number_str = number_str[: - (len(number_str) - 4 - index)]
-		except:
-			index = -1
-
-		return self.numword.cardinal(float(number_str))
-
-	# XXX: extract features as dates: date / dd_mm_yy
-	def __split_by_regexp__(self, re, string, feature, name, remove=True):
-		tokens = []
-		prev = 0
-		for m in re.finditer(string):
-			if name == 'date':
-				m_start = m.start('date')
-				m_end = m.end('date')
-
-				date = string[m.start('date') : m.end('date')]
-				#print "TEST: detected date {}".format(date)
-			else:
-				m_start = m.start()
-				m_end = m.end()
-
-			if name == 'dd_mm_yy':
-				name = 'date'
-
-			if name not in feature.keys():
-				feature[name] = 1
-			else:
-				feature[name] += 1
-
-			if remove == True:
-				feature['cnt'] += 1
-
-			if remove == True or \
-			   name == 'number' or name == 'percent' or name == 'time':
-				if m_start > 0 and len(tokens) == 0:
-					tokens.append(string[:m_start])
-				else:
-					tokens.append(string[prev : m_start])
-
-				prev = m_end
-
-			# convert number to word
-			if name == 'number' and remove == False:
-				try:
-					#print "TEST: process number {}".format(string[m_start : m_end])
-					number_str = self.__numb_to_word__(string[m_start : m_end])
-					tokens.append(number_str.encode('utf-8'))
-				except Exception as e:
-					self.__print__('ERR', "failed to convert {} to float: {}".format(string[m_start : m_end], e))
-
-			# remove '%' and convert number to word
-			if name == 'percent' and remove == False:
-				#print "TEST: process percent {}".format(string[m_start : m_end])
-				percent_str = string[m_start : m_end]
-				percent_str = percent_str.replace('%', '').strip()
-				try:
-					percent_str = self.__numb_to_word__(percent_str)
-					tokens.append(percent_str.encode('utf-8') + ' процент ')
-				except Exception as e:
-					self.__print__('ERR', "failed to convert {} to float: {}".format(string[m_start : m_end], e))
-
-			if name == 'time' and remove == False:
-				#print "TEST: process time {}".format(string[m_start : m_end])
-				times = string[m_start : m_end].strip().split(':')
-				try:
-					hour = self.numword.cardinal(float(times[0]))
-					mins = self.numword.cardinal(float(times[1]))
-					time_str = hour.encode('utf-8') + ' час ' + mins.encode('utf-8') + ' минута '
-					if len(times) == 3:
-						secs = self.numword.cardinal(float(times[2]))
-						time_str += secs.encode('utf-8') + ' секунда '
-					tokens.append(time_str)
-				except Exception as e:
-					self.__print__('ERR', "failed to convert {} to time: {}".format(string[m_start : m_end], e))
-
-		if remove or len(tokens) > 0:
-			if prev < len(string):
-				tokens.append(string[prev :])
-			return ' '.join(tokens)
-
-		return string
-
-	def normalize_word(self, word):
-		return self.morphy.parse(word)[0].normal_form
-
-	def split_sent_to_tokens(self, sent, features):
-		tokens = []
-		pattern = '|'.join(map(re.escape, self.punct))
-
-		# Process regexp and remove some of them
-		try:
-			for r in self.re:
-				sent = self.__split_by_regexp__(r['re'], sent, features, r['name'], r['remove'])
-
-			if isinstance(sent, unicode) is False:
-				sent = sent.decode('utf-8')
-		except:
-			self.failed_to_parse_sentence += 1
-			return None
-
-		assert(isinstance(sent, unicode) == True)
-
-		has_senti_words = False
-		for t in word_tokenize(sent):
-			features['cnt'] += 1
-
-			t = t.lower()
-			# remove stop_words
-			if t in self.stop_words:
-				features['stop_words'] += 1
+		no_normalization = ['token_cnt', 'bigram_cnt', 'sentence_cnt']
+		# store common stat
+		for k in self.stat['token_stat'].keys():
+			self.stat['token_stat'][k] += token_features[k]
+			# normalize parametrs
+			if k in no_normalization:
 				continue
 
-			# remove punctuation symbs
-			prev_len = len(t)
-			t = ''.join(re.split(pattern, t))
-			if len(t) < prev_len:
-				features['punct'] += prev_len - len(t)
-				features['cnt'] += prev_len - len(t)
+			division = 'token_cnt'
+			if k == 'senti_sentence':
+				division = 'sentence_cnt'
 
-			if len(t) < 2:
-				continue
+			token_features[k] = float(token_features[k]) / token_features[division]
 
-			# dash abbrs
-			dash_tokens = self.split_dash_abbr(t)
-			if dash_tokens is None:
-				continue
-
-			features['cnt'] += len(dash_tokens)
-			# ordinary abbrs
-			for d in dash_tokens:
-				if d in self.abbr.keys():
-					# already normalized
-					tokens.extend(self.abbr[d])
-					features['abbr'] += 1
-					continue
-
-				if d in self.stop_words:
-					features['stop_words'] += 1
-					continue
-				if len(d) <= 1:
-					continue
-
-				# normalization
-				normalized = self.normalize_word(d)
-				if normalized in self.stop_words:
-					features['stop_words'] += 1
-					continue
-
-				if normalized in self.week_day:
-					features['date'] += 1
-				elif normalized in self.senti_words:
-					features['senti_words'] += 1
-					has_senti_words = True
-
-				tokens.append(normalized)
-
-		if len(tokens) <= 1:
-			return None
-
-		if has_senti_words:
-			features['senti_sentence'] += 1
-
-		bigrams = [' '.join(tokens[i:i+2]) for i in range(len(tokens) - 1)]
-
-		return bigrams
-
-	def split_text_to_sent(self, text, features):
-		sentences = []
-		start_pos = 0
-		text = text.encode('utf-8')
-		prev_fails = self.failed_to_parse_sentence
-		for m in self.sent_re.finditer(text):
-			#print m.group() + ' ' + str(m.start())
-			new_sent = self.split_sent_to_tokens(text[start_pos:m.start()], features)
-			if new_sent != None:
-				sentences.append(new_sent)
-				features['sentence_cnt'] += 1
-			start_pos = m.start() + 1
-
-		if start_pos < len(text):
-			new_sent = self.split_sent_to_tokens(text[start_pos:], features)
-			if new_sent != None:
-				sentences.append(new_sent)
-				features['sentence_cnt'] += 1
-
-		if self.debug is False:
-			return sentences
-
-		for s in sentences:
-			self.__print__('DEB', "Sent: =========")
-			self.__print__('DEB', ' '.join(s).encode('utf-8'))
-
-		if prev_fails < self.failed_to_parse_sentence:
-			self.__print__('ERR', "failed to parse {} sentences".format(str(self.failed_to_parse_sentence)))
+		for k in token_features.keys():
+			features[k] = token_features[k]
 
 		return sentences
 
-	def get_texts(self, start, end_limit):
+	def get_news_texts(self, start, end_limit):
 		all_texts = []
 		assert(start > 0)
 		i =  start - 1
@@ -445,42 +152,7 @@ class TextProcess():
 				if (len(t['text']) == 0):
 					continue
 
-				common_features = {
-					'subagent':		None,
-					'news_agent':	None,
-					'title':		None,
-					'text':			None,
-					'summary':		None,
-					'authors':		None,
-					'term':			None,
-					'link':			None,
-				}
-
-				features_pattern = {
-					'subagent':		None,
-					'news_agent':	None,
-					'title':		None,
-					'text':			None,
-					'summary':		None,
-					'authors':		None,
-					'term':			None,
-					'link':			None,
-					'abbr':			0,
-					'stop_words':	0,
-					'number':		0,
-					'date':			0,
-					'time':			0,
-					'percent':		0,
-					'english':		0,
-					'punct':		0,
-					'senti_words':	0,
-					'senti_sentence': 0,
-					'sentence_cnt':	0,
-					'cnt':			0,
-				}
-
-				features = features_pattern.copy()
-
+				features = {}
 				# fill subagent and news agent info
 				if 'subagent_id' in t.keys() and \
 					str(t['subagent_id']) in self.subagent.keys():
@@ -496,38 +168,32 @@ class TextProcess():
 
 				# fill other features and process text-type objects
 				text_is_empty = False
-				for f in common_features.keys():
+				for f in news_features.keys():
 					if f not in t.keys():
+						continue
+
+					if f != 'text':
+						features[f] = t[f]
 						continue
 
 					# TODO: title and summary ?
 					# store features only for text
-					if f == 'text':
-							features[f] = self.split_text_to_sent(t[f], features)
-							if len(features[f]) <= 2:
-								text_is_empty = True
-								break
+					new_features = {}
+					features['text'] = self.text_to_sent(t['text'], new_features)
+					if features['text'] is None:
+						text_is_empty = True
+						break
 
-							# store common stat
-							for k in self.stat['token stat'].keys():
-								self.stat['token stat'][k] += features[k]
-								# normalize parametrs
-								if k != 'cnt':
-									features[k] = float(features[k]) / features['cnt']
-
-							for s in features[f]:
-								self.stat['bigrams'] += len(s)
-
-							self.stat['sentence_cnt'] += features['sentence_cnt']
-					else:
-						features[f] = t[f]
+					features.update(new_features)
 
 				if text_is_empty:
 					continue
 
-				self.stat['text cnt'] += 1
+				self.stat['text_cnt'] += 1
+				all_texts.append(features)
 
 				if self.debug is True:
+						self.__print__('DEB', "Text features =============")
 						for f in features:
 							if type(features[f]) is str:
 								self.__print__('DEB', "{} -> {}".format(f, features[f]))
@@ -543,8 +209,7 @@ class TextProcess():
 								continue
 							else:
 								self.__print__('ERR', "unknown type " + f)
-
-				all_texts.append(features)
+						self.__print__('DEB', "================")
 
 			if i_prev == i:
 				break
@@ -552,6 +217,11 @@ class TextProcess():
 			start = end + 1
 
 		return all_texts
+
+	def news_parse(self, start_index, end_index):
+		texts_features = self.get_news_texts(start_index, end_index)
+		self.compute_final_stat()
+		return texts_features
 
 	# use for analys only
 	def get_fixed_word_len(self, texts_features, low_len, up_len):
@@ -571,26 +241,14 @@ class TextProcess():
 			self.__print__('INF', w[0].encode('utf-8') + ' ' + str(w[1]))
 
 	def print_stat(self):
-		if self.stat['text cnt'] == 0:
-			self.__print__('ERR', "No texts have been analized")
-			return
-
-		self.stat['average sentence per text'] = float(self.stat['sentence_cnt']) / self.stat['text cnt']
-		self.stat['average bigrams per sentence'] = float(self.stat['bigrams']) / self.stat['sentence_cnt']
-
 		for k in self.stat.keys():
 			if type(self.stat[k]) is dict:
-				assert(k == 'token stat')
+				assert(k == 'token_stat')
 				for sub_k in self.stat[k].keys():
-					self.__print__('INF', "{} -> {} / {} ({} %)".format(sub_k, self.stat[k][sub_k], self.stat[k]['cnt'], \
-																		float(self.stat[k][sub_k]) / self.stat[k]['cnt']))
+					self.__print__('INF', "{} -> {} ".format(sub_k, self.stat[k][sub_k]))
 				continue
 
 			self.__print__('INF', "{} -> {}".format(k, self.stat[k]))
-
-	def preprocess(self, start_index, end_index):
-		texts_features = self.get_texts(start_index, end_index)
-		return texts_features
 
 	def store_as_json(self, texts, out_file):
 		try:
