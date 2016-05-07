@@ -25,6 +25,7 @@ dd_mm_yy_re= r'(((0[1-9]|[12]\d|3[01])\.(0[13578]|1[02])\.((19|[2-9]\d)\d{2}))|(
 number_re = r'(\-?\d+[\.,]?\d*)'
 time_re = r'((?:1?[0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9])?)'
 english_re = r'([a-zA-Z]+(?:\s+[a-zA-Z]+)*)'
+emotion_punct = ['!', '?', '...']
 
 # day of the week
 week_day = [u'понедельник', u'вторник', u'среда', u'четверг', u'пятница', u'суббота', u'воскресение',
@@ -40,6 +41,7 @@ token_stat_schema = {
 	'percent':		0,
 	'english':		0,
 	'punct':		0,
+	'emotion_punct':0,
 	'senti_words':	0,
 	'token_cnt':	0,
 	'bigram_cnt':	0,
@@ -124,6 +126,7 @@ class Tokenizer():
 		for w in self.senti_words.keys():
 			self.senti_words[w] = float(self.senti_words[w][0])
 
+		self.emotion_punct = emotion_punct
 		self.punct = self.__read_from_file__(data_dir + "/" + punct)
 		self.abbr = self.__read_from_file__(data_dir + "/" + abbr, False)
 		for a in self.abbr.keys():
@@ -335,6 +338,9 @@ class Tokenizer():
 			prev_len = len(t)
 			t = ''.join(re.split(pattern, t))
 			if len(t) < prev_len:
+				for emotion_p in self.emotion_punct:
+					if t.find(emotion_p):
+						self.stat['token_stat']['emotion_punct'] += 1
 				self.stat['token_stat']['punct'] += prev_len - len(t)
 				self.stat['token_stat']['token_cnt'] += prev_len - len(t)
 

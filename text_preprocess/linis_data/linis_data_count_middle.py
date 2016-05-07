@@ -12,7 +12,7 @@ class LinisTextSentParser():
 		self.text_features = []
 		self.text_cnt = 0
 		self.success_cnt = 0
-		self.text_limit = 9000
+		self.text_limit = 11000
 		self.write_n = 0
 		self.start_n_symbs = 700
 		self.len_mismatch = 0
