@@ -18,9 +18,14 @@ class TextParser():
 		else:
 			self.log.write("[{}]{}: {}\n".format(time_stmp, levl, msg))
 
-	def __init__(self, debug=False, log=None, data_dir="data", \
-				 stop_words="stop_words.txt", punct="punct_symb.txt", sent_end="sentence_end.txt", \
-				 abbr="abbr.txt", senti_words="product_senti_rus.txt"):
+	def __init__(self, debug=False, log=None, data_dir="data"):
+		# TODO: to config
+		stop_words = "stop_words.txt"
+		punct = "punct_symb.txt"
+		sent_end = "sentence_end.txt"
+		abbr = "abbr.txt"
+		senti_words = "product_senti_rus.txt"
+
 		self.log = None
 		if log != None:
 			try:

@@ -33,11 +33,8 @@ class NewsParser(TextParser):
 		#	print "{} -> subtitle {} news_agent {}".format(s, self.subagent[s]['subtitle'].encode('utf-8'),
 		#													  self.news_agent[str(self.subagent[s]['news_agent_id'])]['name'].encode('utf-8'))
 
-	def __init__(self, batch_size=50, debug=False, log=None, data_dir="data", \
-				 stop_words="stop_words.txt", punct="punct_symb.txt", sent_end="sentence_end.txt", \
-				 abbr="abbr.txt", senti_words="product_senti_rus.txt"):
-		TextParser.__init__(self, debug, log, data_dir,\
-							stop_words, punct, sent_end, abbr, senti_words)
+	def __init__(self, batch_size=50, debug=False, log=None, data_dir="data"):
+		TextParser.__init__(self, debug, log, data_dir)
 
 		self.db_cn = DBConnector()
 		self.__select_news_agent_info__()

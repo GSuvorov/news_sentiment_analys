@@ -4,6 +4,7 @@ from mongodb_connector import DBConnector
 
 from optparse import OptionParser
 from news_parser import NewsParser
+from linis_parser import LinisParser
 
 def parse_options():
 		parser = OptionParser()
@@ -22,6 +23,10 @@ def main():
 				return
 
 		log_fname = "preprocess.log"
+		linis_p = LinisParser()
+		return
+
+
 		text_p = NewsParser(batch_size=10, debug=opt.debug, log=log_fname)
 		out_fname = "res.json"
 
