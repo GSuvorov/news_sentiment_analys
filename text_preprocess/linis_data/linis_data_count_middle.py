@@ -11,7 +11,8 @@ class LinisTextSentParser():
 		# text: { 'text': '', 'first_n': n, 'len': n_len, 'sum_senti': n_senti, 'cnt': cnt, 'number_in_file': number }
 		self.text_features = []
 		self.text_cnt = 0
-		self.text_limit = 1300
+		self.success_cnt = 0
+		self.text_limit = 9000
 		self.write_n = 0
 		self.start_n_symbs = 700
 		self.len_mismatch = 0
@@ -23,12 +24,17 @@ class LinisTextSentParser():
 
 			for text in f:
 				self.text_cnt += 1
-				print "Text number: " + str(self.text_cnt)
+				if self.text_cnt % 100 == 0:
+					print "Text number: " + str(self.text_cnt)
 				if self.text_cnt > self.text_limit:
 					break
 
 				senti = f_senti.readline()
 				text_len = len(text)
+				try:
+					senti = float(senti)
+				except:
+					continue
 
 				#print "text: {}".format(text[:100].encode('utf-8'))
 				start_symbs = len(text)
@@ -44,22 +50,24 @@ class LinisTextSentParser():
 						if text_len != t['len']:
 							self.len_mismatch += 1
 							print "ERR: mismatch len {} and {} for {}".format(t['len'], text_len, text[:20].encode('utf-8'))
-							break
+							continue
 
 						found = True
 						t['cnt'] += 1
-						t['sum_senti'] += float(senti)
+						t['sum_senti'] += senti
+						self.success_cnt += 1
 						break
 
 				if found == False:
 					self.write_n += 1
+					self.success_cnt += 1
 					f_out.write(text)
 					self.text_features.append({
 						'text': text[:start_symbs],
 						'first_n': start_symbs,
 						'len': text_len,
 						'cnt': 1,
-						'sum_senti': float(senti),
+						'sum_senti': senti,
 						'number_in_file': self.write_n
 					})
 
@@ -102,14 +110,20 @@ class LinisTextSentParser():
 			print "INF: file pair cnt: {} : process '{}' and '{}'".format(file_cnt, full_fname, sent_file)
 			self.text_process(full_fname, sent_file, f_out)
 
-		print "Stat: processed {}, failed {}".format(file_cnt, failed_cnt)
-		print "Stat: len mismatch {}".format(self.len_mismatch)
+		print "Stat:"
+		print "\tfile: processed {}, failed {}".format(file_cnt, failed_cnt)
+		print "\ttext:{} / {}".format(self.success_cnt, self.text_cnt)
+		print "\tlen mismatch {}".format(self.len_mismatch)
 		print "Storing results.."
 
 		write_n = 0
 		for t in self.text_features:
 			write_n += 1
-			assert(write_n == t['number_in_file'])
+			if write_n != t['number_in_file']:
+				print "ERR: mismatch : expect {} got {}".format(write_n, t['number_in_file'])
+				return
+			if t['cnt'] > 5:
+				print "INF: sum senti {} cnt {}".format(t['sum_senti'], t['cnt'])
 			f_target_out.write(str(int(t['sum_senti'] / t['cnt'])) + "\n")
 
 		f_out.close()

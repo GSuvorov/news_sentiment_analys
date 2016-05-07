@@ -3,10 +3,31 @@ from __future__ import division
 import json
 
 class FeatureGetter():
-	def __init__(self):
+	def __init__(self, data_dir="data"):
 		self.vocab = {}
 		self.vocab_bigrams = {}
 		self.doc_cnt = 0
+
+		senti_dict = "sentiment_words.csv"
+		self.senti_dict = {}
+
+		try:
+			f = open(data_dir + "/" + senti_dict, 'rb')
+			# schema: "Words";"mean";"dispersion";"average rate";
+			self.senti_dict_file = csv.reader(f, delimiter=";", quotechar="\"")
+
+			w_cnt = 0
+			for e in self.senti_dict_file:
+				w_cnt += 1
+				if w_cnt == 1:
+					continue
+				self.senti_dict[e[0].decode('utf-8')] = [e[1], e[3], e[4]]
+
+			f.close()
+		except Exception as e:
+			self.__print__('ERR', str(e))
+			sys.exit(1)
+
 
 	def read_json_texts(self, fname):
 		try:
