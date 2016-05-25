@@ -1,33 +1,29 @@
 # coding=utf-8
 from __future__ import division
 import json
+import csv
+import sys
+import pickle
 
-class FeatureGetter():
-	def __init__(self, data_dir="data"):
+from logger import Logger
+from freq_sent_dict import FreqSentDict
+
+class FeatureGetter(Logger):
+	def __init__(self, data_dir="data", log=None, debug=False, dict_obj="FreqSentDictObj"):
+		Logger.__init__(self, log)
+		self.debug = debug
+
 		self.vocab = {}
 		self.vocab_bigrams = {}
 		self.doc_cnt = 0
 
-		senti_dict = "sentiment_words.csv"
-		self.senti_dict = {}
-
 		try:
-			f = open(data_dir + "/" + senti_dict, 'rb')
-			# schema: "Words";"mean";"dispersion";"average rate";
-			self.senti_dict_file = csv.reader(f, delimiter=";", quotechar="\"")
-
-			w_cnt = 0
-			for e in self.senti_dict_file:
-				w_cnt += 1
-				if w_cnt == 1:
-					continue
-				self.senti_dict[e[0].decode('utf-8')] = [e[1], e[3], e[4]]
-
+			f = open(dict_obj, 'r')
+			self.freq_sent = pickle.load(f)
 			f.close()
 		except Exception as e:
 			self.__print__('ERR', str(e))
 			sys.exit(1)
-
 
 	def read_json_texts(self, fname):
 		try:
@@ -141,4 +137,19 @@ class FeatureGetter():
 			if text_index == 2:
 				return
 
+	# values must be an array of dict: [{'feature': value}] 
+	def store_as_csv(self, filename, features, values):
+		if type(values) != list or type(features) != list:
+			self.__print__('ERR', "incorrect arguments")
+			return
 
+		try:
+			f = open(filename, 'w')
+
+			writer = csv.DictWriter(f, fieldnames=features)
+			writer.writeheader()
+			[writer.writerow(v) for v in values]
+
+			f.close()
+		except Exception as e:
+			self.__print__('ERR', "unable to store as csv: " + str(e))

@@ -6,33 +6,18 @@ import time
 import datetime
 
 from tokenizer import Tokenizer
+from logger import Logger
 
-class TextParser():
-	def __print__(self, levl, msg):
-		if levl == 'DEB' and self.debug == False:
-			return
-
-		time_stmp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
-		if self.log is None:
-			print "[{}]{}: {}".format(time_stmp, levl, msg)
-		else:
-			self.log.write("[{}]{}: {}\n".format(time_stmp, levl, msg))
-
+class TextParser(Logger):
 	def __init__(self, debug=False, log=None, data_dir="data"):
+		Logger.__init__(self, log)
+
 		# TODO: to config
 		stop_words = "stop_words.txt"
 		punct = "punct_symb.txt"
 		sent_end = "sentence_end.txt"
 		abbr = "abbr.txt"
 		senti_words = "product_senti_rus.txt"
-
-		self.log = None
-		if log != None:
-			try:
-				self.log = open(log, 'a')
-			except Exception as e:
-				self.__print__('ERR', str(e))
-				sys.exit(1)
 
 		self.debug = debug
 
