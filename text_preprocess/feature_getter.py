@@ -18,7 +18,7 @@ class FeatureGetter(Logger):
 		self.doc_cnt = 0
 
 		try:
-			f = open(dict_obj, 'r')
+			f = open(data_dir + '/' + dict_obj, 'r')
 			self.freq_sent = pickle.load(f)
 			f.close()
 		except Exception as e:
