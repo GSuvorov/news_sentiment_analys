@@ -10,18 +10,30 @@ from logger import Logger
 from freq_sent_dict import FreqSentDict
 
 class FeatureGetter(Logger):
-	def __init__(self, data_dir="data", log=None, debug=False, dict_obj="FreqSentDictObj", word_vec="word_vec.json"):
+	def __init__(self, data_dir="data", log=None, debug=False, \
+				dict_obj="FreqSentDictObj", word_vec="word_vec.json", weight_func_type='tfidf'):
 		Logger.__init__(self, log, debug)
 		self.not_found_words = {}
 		self.stat = {
 			'not_found': 0,
 			'all': 0
 		}
+		self.doc_cnt = 38369
+
+		if weight_func_type == 'tfidf':
+			self.weight_func = FeatureGetter.tfidf_weights
+		else:
+			self.__print__('ERR', "unknown weight function type ('{}')".format(weight_func_type))
 
 		try:
 			f = open(data_dir + '/' + word_vec, 'r')
 			self.word_vec = json.load(f)
 			f.close()
+
+			index = 0
+			for w in self.word_vec.keys():
+				self.word_vec[w] = index
+				index += 1
 
 			self.__print__('DEB', 'word vec dimension is {}'.format(len(self.word_vec.keys())))
 
@@ -59,55 +71,6 @@ class FeatureGetter(Logger):
 		except Exception as e:
 			self.__print__('ERR', "unable to store as csv: " + str(e))
 
-	def tfidf_form_features(self, text_features):
-		doc_cnt = 38369
-		tfidf_f = []
-
-		progress_cnt = 0
-
-		for t in text_features:
-			if 'text' not in t.keys():
-				print "ERR: no text in text + feature list"
-				continue
-
-			progress_cnt += 1
-			if progress_cnt % 100:
-				self.__print__('DEB', progress_cnt)
-
-			text_words = {}
-			total_words = 0
-			for sent in t['text']:
-				for word in sent:
-					total_words += 1
-
-					if word not in text_words.keys():
-						text_words[word] = 1
-					else:
-						text_words[word] += 1
-
-			for word in text_words.keys():
-				docs = self.freq_dict.freq_docs_by_word(word)
-
-				if docs == None:
-					del text_words[word]
-
-					if word not in self.not_found_words.keys():
-						self.not_found_words[word] = 1
-					else:
-						self.not_found_words[word] = +1
-
-					self.stat['not_found'] +=1
-
-					continue
-
-				text_words[word] = float(text_words[word]) / total_words * math.log(float(doc_cnt) / docs)
-				#print "TEST: {} -> {}".format(word.encode('utf-8'), text_words[word])
-
-			tfidf_f.append(text_words)
-			self.stat['all'] += total_words
-
-		return tfidf_f
-
 	def get_unfound_words_cnt(self):
 		return len(self.not_found_words.keys())
 
@@ -122,79 +85,80 @@ class FeatureGetter(Logger):
 			else:
 				self.__print__('INF', "{} -> {}".format(k.encode('utf-8'), float(self.stat[k]) / self.stat['all']))
 
-	# TODO: correct this function
-	def form_features(self, text_features):
-		exclude_keys = ['text', 'title', 'summary']
+	# text = [ sent: [word] ]
+	def tfidf_weights(self, text):
+		text_words = {}
+		total_words = 0
+		for sent in text:
+			for word in sent:
+				total_words += 1
+
+				if word not in text_words.keys():
+					text_words[word] = 1
+				else:
+					text_words[word] += 1
+
+		for word in text_words.keys():
+			docs = self.freq_dict.freq_docs_by_word(word)
+
+			if docs == None:
+				del text_words[word]
+
+				if word not in self.not_found_words.keys():
+					self.not_found_words[word] = 1
+				else:
+					self.not_found_words[word] = +1
+
+				self.stat['not_found'] +=1
+
+				continue
+
+			text_words[word] = float(text_words[word]) / total_words * math.log(float(self.doc_cnt) / docs)
+			#print "TEST: {} -> {}".format(word.encode('utf-8'), text_words[word])
+
+		self.stat['all'] += total_words
+
+		return text_words
+
+	def text_to_word_vec(self, text):
+		word_weights = self.weight_func(self, text)
+
+		word_features = [0] * len(self.word_vec.keys())
+		for w in word_weights.keys():
+			word_features[self.word_vec[w]] = word_weights[w]
+
+		return word_features
+
+	# features schema = [{'name', 'type'}]
+	def form_features(self, features_schema, text_features):
 		features = []
 
 		text_index = 0
+		# store non-word features according to given
+		# features schema
 		for t in text_features:
 			text_index += 1
-			new_feature = {}
+			new_feature = []
 			if 'text' not in t.keys():
 				continue
 
 			# collect given features
-			for f in t.keys():
-				if f in exclude_keys:
-					continue
-
-				new_feature[f] = t[f]
-
-			# bigram -> freq
-			new_feature['bigrams'] = [0] * len(sorted_bigrams)
-			text_words = {}
-			words_cnt = 0
-			for sent in t['text']:
-				for b_index in range(len(sent)):
-					b = sent[b_index]
-					index = sorted_bigrams.index(b)
-					if index == -1:
-						print "ERR: not found"
-						continue
-
-					new_feature['bigrams'][index] += 1
-					# words cnt
-					if b_index == 0:
-						analys_words = b.split()
+			new_feature = []
+			for f in features_schema:
+				if f['name'] not in t.keys():
+					if f['type'] == 'str':
+						new_feature.append('')
 					else:
-						analys_words = [b.split()[1]]
+						new_feature.append(0)
+				else:
+					new_feature.append(t[f['name']])
 
-					for w in analys_words:
-						if w not in text_words.keys():
-							text_words[w] = 1
-						else:
-							text_words[w] += 1
-						words_cnt += 1
+			new_feature.extend(self.text_to_word_vec(t['text']))
 
-			for b_index in range(len(new_feature['bigrams'])):
-				if new_feature['bigrams'][b_index] == 0:
-					continue
+			features.append(new_feature)
 
-				# tf-idf
-				bigrams = sorted_bigrams[b_index].split()
+			# TODO: remove break
+			break
 
-				print "w1 = {} in text {} cnt ;  w2 {} in text cnt {} ;  w_cnt {} doc with w1 {} doc with w2 {}".format(\
-						bigrams[0].encode('utf-8'),\
-						text_words[bigrams[0]],\
-						bigrams[1].encode('utf-8'),\
-						text_words[bigrams[1]],\
-						words_cnt, self.vocab[bigrams[0]], self.vocab[bigrams[1]])
-
-				tf_idf = float(text_words[bigrams[0]]) / words_cnt * float(self.doc_cnt) / self.vocab[bigrams[0]]
-
-				tf_idf *= float(text_words[bigrams[1]]) / words_cnt * float(self.doc_cnt) / self.vocab[bigrams[1]]
-
-				new_feature['bigrams'][b_index] *= tf_idf
-
-			print "=========="
-			print "Text " + str(text_index)
-			string = ""
-			for freq in new_feature['bigrams']:
-				string += " " + str(freq)
-			print string
-
-			if text_index == 2:
-				returnv
-
+		return features
 
