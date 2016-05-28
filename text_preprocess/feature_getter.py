@@ -4,6 +4,7 @@ import json
 import csv
 import sys
 import pickle
+import math
 
 from logger import Logger
 from freq_sent_dict import FreqSentDict
@@ -12,14 +13,15 @@ class FeatureGetter(Logger):
 	def __init__(self, data_dir="data", log=None, debug=False, dict_obj="FreqSentDictObj"):
 		Logger.__init__(self, log)
 		self.debug = debug
-
-		self.vocab = {}
-		self.vocab_bigrams = {}
-		self.doc_cnt = 0
+		self.not_found_words = {}
+		self.stat = {
+			'not_found': 0,
+			'all': 0
+		}
 
 		try:
 			f = open(data_dir + '/' + dict_obj, 'r')
-			self.freq_sent = pickle.load(f)
+			self.freq_dict = pickle.load(f)
 			f.close()
 		except Exception as e:
 			self.__print__('ERR', str(e))
@@ -35,34 +37,88 @@ class FeatureGetter(Logger):
 			print "ERR: unable to create AllSentence object: " + str(e)
 			sys.exit(1)
 
-	def create_features(self, text_features):
+	# values must be an array of dict: [{'feature': value}] 
+	def store_as_csv(self, filename, features, values):
+		if type(values) != list or type(features) != list:
+			self.__print__('ERR', "incorrect arguments")
+			return
+
+		try:
+			f = open(filename, 'w')
+
+			writer = csv.DictWriter(f, fieldnames=features)
+			writer.writeheader()
+			[writer.writerow(v) for v in values]
+
+			f.close()
+		except Exception as e:
+			self.__print__('ERR', "unable to store as csv: " + str(e))
+
+	def tfidf_form_features(self, text_features):
+		doc_cnt = 38369
+		tfidf_f = []
+
+		progress_cnt = 0
+
 		for t in text_features:
 			if 'text' not in t.keys():
 				print "ERR: no text in text + feature list"
 				continue
 
-			self.doc_cnt += 1
+			progress_cnt += 1
+			if progress_cnt % 100:
+				self.__print__('DEB', progress_cnt)
+
 			text_words = {}
+			total_words = 0
 			for sent in t['text']:
-				for bigram in sent:
-					for w in bigram.split():
-						if w not in text_words.keys():
-							text_words[w] = 1
-					if bigram not in self.vocab_bigrams.keys():
-						self.vocab_bigrams[bigram] = 1
+				for word in sent:
+					total_words += 1
+
+					if word not in text_words.keys():
+						text_words[word] = 1
 					else:
-						self.vocab_bigrams[bigram] += 1
+						text_words[word] += 1
 
-			for w in text_words.keys():
-				if w not in self.vocab.keys():
-					self.vocab[w] = 1
-				else:
-					self.vocab[w] += 1
+			for word in text_words.keys():
+				docs = self.freq_dict.freq_docs_by_word(word)
 
-		print "Texts cnt: " + str(self.doc_cnt)
-		print "Vocab words: " + str(len(self.vocab.keys()))
-		print "Vocab bigrams: " + str(len(self.vocab_bigrams.keys()))
+				if docs == None:
+					del text_words[word]
 
+					if word not in self.not_found_words.keys():
+						self.not_found_words[word] = 1
+					else:
+						self.not_found_words[word] = +1
+
+					self.stat['not_found'] +=1
+
+					continue
+
+				text_words[word] = float(text_words[word]) / total_words * math.log(float(doc_cnt) / docs)
+				#print "TEST: {} -> {}".format(word.encode('utf-8'), text_words[word])
+
+			tfidf_f.append(text_words)
+			self.stat['all'] += total_words
+
+		return tfidf_f
+
+	def get_unfound_words_cnt(self):
+		return len(self.not_found_words.keys())
+
+	def print_stat(self):
+		for w in self.not_found_words.keys():
+			self.__print__('INF', "{} -> {}".format(w.encode('utf-8'), self.not_found_words[w]))
+
+		self.__print__('INF', '===========')
+		for k in self.stat.keys():
+			if k == 'all':
+				self.__print__('INF', "{} -> {}".format(k.encode('utf-8'), self.stat[k]))
+			else:
+				self.__print__('INF', "{} -> {}".format(k.encode('utf-8'), float(self.stat[k]) / self.stat['all']))
+
+	# TODO: correct this function
+	def form_features(self, text_features):
 		exclude_keys = ['text', 'title', 'summary']
 		features = []
 		sorted_bigrams = self.vocab_bigrams.keys()
@@ -137,19 +193,4 @@ class FeatureGetter(Logger):
 			if text_index == 2:
 				return
 
-	# values must be an array of dict: [{'feature': value}] 
-	def store_as_csv(self, filename, features, values):
-		if type(values) != list or type(features) != list:
-			self.__print__('ERR', "incorrect arguments")
-			return
 
-		try:
-			f = open(filename, 'w')
-
-			writer = csv.DictWriter(f, fieldnames=features)
-			writer.writeheader()
-			[writer.writerow(v) for v in values]
-
-			f.close()
-		except Exception as e:
-			self.__print__('ERR', "unable to store as csv: " + str(e))

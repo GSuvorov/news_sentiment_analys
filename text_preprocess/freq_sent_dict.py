@@ -18,7 +18,7 @@ class FreqSentDict():
 			if w_cnt == 1:
 				continue
 
-			key_w = e[0].decode('utf-8')
+			key_w = e[0].decode('utf-8').lower()
 			if key_w in self.senti_dict.keys():
 				print "ERR: found double accurance of key '{}' in senti dict".format(e[0])
 				continue
@@ -46,7 +46,7 @@ class FreqSentDict():
 			if progress_cnt % 100 == 0:
 				print 'DEB: ' + str(progress_cnt)
 
-			key_w = e[0].decode('utf-8')
+			key_w = e[0].decode('utf-8').lower()
 			if key_w in self.freq_dict.keys():
 				self.freq_dict[key_w]['cnt'] += 1
 				self.freq_dict[key_w]['FreqD'] += float(e[4].replace(',', '.'))
@@ -55,11 +55,16 @@ class FreqSentDict():
 				if self.freq_dict[key_w]['F'] < freq:
 					self.freq_dict[key_w]['F'] = freq
 
+				freq = float(e[5].replace(',', '.'))
+				if self.freq_dict[key_w]['Doc'] < freq:
+					self.freq_dict[key_w]['Doc'] = freq
+
 			else:
 				self.freq_dict[key_w] = {
 					'cnt': 1,
 					'F': float(e[2].replace(',', '.')),
-					'FreqD': float(e[4].replace(',', '.'))
+					'FreqD': float(e[4].replace(',', '.')),
+					'Doc': float(e[5].replace(',', '.'))
 				}
 
 		# normalize D koef
@@ -104,6 +109,12 @@ class FreqSentDict():
 			return None
 
 		return self.freq_dict[word]['F']
+
+	def freq_docs_by_word(self, word):
+		if word not in self.freq_dict.keys():
+			return None
+
+		return self.freq_dict[word]['Doc']
 
 	def freq_d_by_word(self, word):
 		if word not in self.freq_dict.keys():

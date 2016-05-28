@@ -104,7 +104,7 @@ class Tokenizer():
 
 	def __init__(self, debug=False, log=None, data_dir="data", \
 				 stop_words="stop_words.txt", punct="punct_symb.txt", sent_end="sentence_end.txt", \
-				 abbr="abbr.txt", senti_words="product_senti_rus.txt"):
+				 abbr="abbr.txt", senti_words="product_senti_rus.txt", to_bigram=False):
 		if log != None:
 			try:
 				self.log = open(log, 'a')
@@ -115,6 +115,7 @@ class Tokenizer():
 			self.log = None
 
 		self.debug = debug
+		self.to_bigram = to_bigram
 		self.morphy = pymorphy2.MorphAnalyzer()
 
 		self.stop_words = self.__read_from_file__(data_dir + "/" + stop_words)
@@ -307,7 +308,8 @@ class Tokenizer():
 	def normalize_word(self, word):
 		return self.morphy.parse(word)[0].normal_form
 
-	def sent_to_bigrams(self, sent):
+	# single words or bigrams are supproted for now
+	def sent_to_ngrams(self, sent, to_bigram):
 		tokens = []
 		pattern = '|'.join(map(re.escape, self.punct))
 
@@ -384,14 +386,19 @@ class Tokenizer():
 		if len(tokens) <= 1:
 			return None
 
-		bigrams = [' '.join(tokens[i:i+2]) for i in range(len(tokens) - 1)]
+		birgams = []
+		if to_bigram:
+			bigrams = [' '.join(tokens[i:i+2]) for i in range(len(tokens) - 1)]
+			res_tokens = bigrams
+		else:
+			res_tokens = tokens
 
-		self.stat['token_stat']['bigram_cnt'] += len(bigrams)
+		self.stat['token_stat']['bigram_cnt'] += len(res_tokens)
 		self.stat['token_stat']['sentence_cnt'] += 1
 		if has_senti_words:
 			self.stat['token_stat']['senti_sentence'] += 1
 
-		return bigrams
+		return res_tokens
 
 	def text_to_sent(self, text):
 		sentences = []
@@ -403,13 +410,13 @@ class Tokenizer():
 		self.__token_stat_reset__()
 
 		for m in self.sent_re.finditer(text):
-			new_sent = self.sent_to_bigrams(text[start_pos:m.start()])
+			new_sent = self.sent_to_ngrams(text[start_pos:m.start()], self.to_bigram)
 			if new_sent != None:
 				sentences.append(new_sent)
 			start_pos = m.start() + 1
 
 		if start_pos < len(text):
-			new_sent = self.sent_to_bigrams(text[start_pos:])
+			new_sent = self.sent_to_ngrams(text[start_pos:], self.to_bigram)
 			if new_sent != None:
 				sentences.append(new_sent)
 

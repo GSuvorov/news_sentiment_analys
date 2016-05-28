@@ -1,4 +1,5 @@
 # coding=utf-8
+from inspect import currentframe, getframeinfo
 import sys
 import time
 import datetime
@@ -10,7 +11,11 @@ class Logger():
 
 		time_stmp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
 		if self.log is None:
-			print "[{}]{}: {}".format(time_stmp, levl, msg)
+			if levl == 'ERR':
+				frameinfo = getframeinfo(currentframe())
+				print "[{}]{}: {}".format(time_stmp, levl, msg, frameinfo.filename, frameinfo.lineno)
+			else:
+				print "[{}]{}: {}".format(time_stmp, levl, msg)
 		else:
 			self.log.write("[{}]{}: {}\n".format(time_stmp, levl, msg))
 
