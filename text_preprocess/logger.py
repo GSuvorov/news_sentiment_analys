@@ -19,8 +19,9 @@ class Logger():
 		else:
 			self.log.write("[{}]{}: {}\n".format(time_stmp, levl, msg))
 
-	def __init__(self, log=None):
+	def __init__(self, log=None, debug=False):
 		self.log = log
+		self.debug = debug
 		if self.log is None:
 			return
 

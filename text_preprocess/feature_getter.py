@@ -10,9 +10,8 @@ from logger import Logger
 from freq_sent_dict import FreqSentDict
 
 class FeatureGetter(Logger):
-	def __init__(self, data_dir="data", log=None, debug=False, dict_obj="FreqSentDictObj"):
-		Logger.__init__(self, log)
-		self.debug = debug
+	def __init__(self, data_dir="data", log=None, debug=False, dict_obj="FreqSentDictObj", word_vec="word_vec.json"):
+		Logger.__init__(self, log, debug)
 		self.not_found_words = {}
 		self.stat = {
 			'not_found': 0,
@@ -20,6 +19,12 @@ class FeatureGetter(Logger):
 		}
 
 		try:
+			f = open(data_dir + '/' + word_vec, 'r')
+			self.word_vec = json.load(f)
+			f.close()
+
+			self.__print__('DEB', 'word vec dimension is {}'.format(len(self.word_vec.keys())))
+
 			f = open(data_dir + '/' + dict_obj, 'r')
 			self.freq_dict = pickle.load(f)
 			f.close()
@@ -121,8 +126,7 @@ class FeatureGetter(Logger):
 	def form_features(self, text_features):
 		exclude_keys = ['text', 'title', 'summary']
 		features = []
-		sorted_bigrams = self.vocab_bigrams.keys()
-		sorted_bigrams.sort()
+
 		text_index = 0
 		for t in text_features:
 			text_index += 1
@@ -191,6 +195,6 @@ class FeatureGetter(Logger):
 			print string
 
 			if text_index == 2:
-				return
+				returnv
 
 

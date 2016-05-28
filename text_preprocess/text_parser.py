@@ -10,7 +10,7 @@ from logger import Logger
 
 class TextParser(Logger):
 	def __init__(self, debug=False, log=None, data_dir="data"):
-		Logger.__init__(self, log)
+		Logger.__init__(self, log, debug)
 
 		# TODO: to config
 		stop_words = "stop_words.txt"
@@ -18,8 +18,6 @@ class TextParser(Logger):
 		sent_end = "sentence_end.txt"
 		abbr = "abbr.txt"
 		senti_words = "product_senti_rus.txt"
-
-		self.debug = debug
 
 		# found features in all texts
 		self.stat = {
