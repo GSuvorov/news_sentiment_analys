@@ -85,15 +85,13 @@ class TextParser(Logger):
 	def text_to_features(self, text, as_utf8=False):
 		features = {}
 		# split to tokens and store stat
-		print "here"
 		sentences = self.text_to_sent(text, features)
-		features['text'] = sentences
-		print "here2"
+		if sentences is None:
+			return None
 
 		self.feature_creator.stat_reset()
-		features.extend(self.feature_creator.word_vec_senti_features(sentences, as_utf8))
+		features.update(self.feature_creator.word_vec_senti_features(sentences, as_utf8))
 		features['unfound_words'] = self.feature_creator.get_unfound_percent()
-		print "here3"
 
 		return features
 

@@ -2,6 +2,7 @@
 from __future__ import division
 import sys
 import csv
+import codecs
 
 from text_parser import TextParser
 
@@ -16,34 +17,42 @@ class LinisParser(TextParser):
 			linis_schema.append('target')
 
 			self.__print__('DEB', "storing schema to csv file")
-			#self.csv_writer_init(res_fname, linis_schema)
+			self.csv_writer_init(res_fname, linis_schema)
 
-			train_f = open(train_fname, 'r')
+			train_f = codecs.open(train_fname, mode='r', encoding='utf-8')
 			target_f = open(target_fname, 'r')
 
 			index = 0
+			pass_cnt = 0
+			limit = -1
 			text_features = []
-			for text in train_f.readline():
+			for text in train_f:
 				target = float(target_f.readline().replace(',', '.'))
 
 				index += 1
 				if index % 100 == 0:
 					self.__print__('INF', "processed {} texts".format(index))
 
+				if index <= pass_cnt:
+					continue
+
 				self.__print__('DEB', "process text {}".format(index))
 				features = self.text_to_features(text, as_utf8=True)
+				if features is None:
+					continue
+
 				features['target'] = target
 
 				self.__print__('DEB', "storing features to csv file")
-				#self.csv_writer_insert_row(features)
+				self.csv_writer_insert_row(features)
 
-				break
+				if index == limit:
+					break
 
 			train_f.close()
 			target_f.close()
-			#self.writer_close()
+			self.csv_writer_close()
 			self.__print__('INF', "done")
-
 		except Exception as e:
 			self.__print__('ERR', str(e))
 			sys.exit(1)

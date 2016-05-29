@@ -186,8 +186,8 @@ class FeatureGetter(Logger):
 					continue
 				new_feature[f] = t[f]
 
-			new_feature.update(self.text_to_word_vec(t['text'], as_utf8))
-			new_feature.update(self.form_senti_features(t['text']))
+			new_feature.extend(self.text_to_word_vec(t['text'], as_utf8))
+			new_feature.extend(self.form_senti_features(t['text']))
 
 			features.append(new_feature)
 			break
@@ -196,8 +196,9 @@ class FeatureGetter(Logger):
 
 	def word_vec_senti_features(self, text, as_utf8=False):
 		features = {}
-		features.extend(self.text_to_word_vec(text, as_utf8))
-		features.extend(self.form_senti_features[text])
+		features.update(self.text_to_word_vec(text, as_utf8))
+		features.update(self.form_senti_features(text))
+		return features
 
 	def get_word_vec_schema(self, as_utf8=False):
 		if as_utf8:
