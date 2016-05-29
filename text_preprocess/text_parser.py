@@ -4,8 +4,10 @@ import json
 import sys
 import time
 import datetime
+import csv
 
 from tokenizer import Tokenizer
+from feature_getter import FeatureGetter
 from logger import Logger
 
 class TextParser(Logger):
@@ -29,6 +31,11 @@ class TextParser(Logger):
 		self.tokenizer = Tokenizer(debug, log, data_dir, stop_words, punct, sent_end, abbr, senti_words)
 		self.stat['token_stat'] = self.tokenizer.get_token_stat_schema()
 
+		self.feature_creator = FeatureGetter(debug=self.debug)
+
+		self.csv_writer = None
+		self.csv_writer_f = None
+
 	def compute_final_stat(self):
 		if self.stat['text_cnt'] == 0:
 			self.__print__('ERR', "No texts have been analized")
@@ -38,7 +45,7 @@ class TextParser(Logger):
 		self.stat['avg_bigram_per_sentence'] = float(self.stat['token_stat']['bigram_cnt']) / self.stat['token_stat']['sentence_cnt']
 
 	def text_to_sent(self, text, features):
-		# text -> [sentence] , sentence -> [bigram]
+		# text -> [sentence] , sentence -> [bigram|word]
 		sentences = self.tokenizer.text_to_sent(text)
 		if len(sentences) <= 2:
 			return None
@@ -64,6 +71,31 @@ class TextParser(Logger):
 			features[k] = token_features[k]
 
 		return sentences
+
+	# feature schema for 'text_to_features'
+	def get_schema(self, as_utf8=False):
+		schema = []
+
+		schema.extend(self.stat['token_stat'].keys())
+		schema.extend(self.feature_creator.get_schema(as_utf8))
+		schema.append('unfound_words')
+
+		return schema
+
+	def text_to_features(self, text, as_utf8=False):
+		features = {}
+		# split to tokens and store stat
+		print "here"
+		sentences = self.text_to_sent(text, features)
+		features['text'] = sentences
+		print "here2"
+
+		self.feature_creator.stat_reset()
+		features.extend(self.feature_creator.word_vec_senti_features(sentences, as_utf8))
+		features['unfound_words'] = self.feature_creator.get_unfound_percent()
+		print "here3"
+
+		return features
 
 	# use for analys only
 	def get_fixed_word_len(self, texts_features, low_len, up_len):
@@ -99,4 +131,70 @@ class TextParser(Logger):
 			f.close()
 		except Exception as e:
 			self.__print__('ERR', "unable to store as json: " + str(e))
+
+	# csv writer streamer
+	def csv_writer_init(self, filename, features_schema):
+		if type(features_schema) != list:
+			self.__print__('ERR', "incorrect arguments")
+			return
+
+		try:
+			self.csv_writer_f = open(filename, 'w')
+			self.csv_writer = csv.DictWriter(self.csv_writer_f, fieldnames=features_schema)
+			self.csv_writer.writeheader()
+
+		except Exception as e:
+			self.csv_writer = None
+			self.csv_writer_f = None
+
+			self.__print__('ERR', "unable to store as csv: " + str(e))
+
+	def csv_writer_insert_row(self, value):
+		try:
+			assert(type(value) == dict)
+			self.csv_writer.writerow(value)
+		except Exception as e:
+			self.__print__('ERR', "unable to insert row to csv file " + str(e))
+
+	def csv_writer_close(self):
+		if self.csv_writer is None:
+			return
+
+		assert(self.csv_writer_f != None)
+		self.csv_writer_f.close()
+
+		self.csv_writer = None
+		self.csv_writer_f = None
+
+	# values must be an array 
+	def store_as_csv(self, filename, features, values):
+		if type(values) != list or type(features) != list:
+			self.__print__('ERR', "incorrect arguments")
+			return
+
+		try:
+			f = open(filename, 'w')
+
+			writer = csv.DictWriter(f, fieldnames=features)
+			writer.writeheader()
+			writer.writerows(values)
+
+			f.close()
+		except Exception as e:
+			self.__print__('ERR', "unable to store as csv: " + str(e))
+
+	def store_features_as_csv(self, features, target, res_fname):
+		assert(len(features) == len(target))
+
+		features_schema = self.get_schema()
+		features_schema.append('target')
+
+		self.__print__('DEB', "forming schema..")
+		for i in range(len(features)):
+			features[i].update({'target': target[i]})
+
+		self.__print__('DEB', "storing result as csv..")
+		self.store_as_csv(res_fname, features_schema, features)
+
+
 

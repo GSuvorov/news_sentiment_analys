@@ -10,23 +10,40 @@ class LinisParser(TextParser):
 		TextParser.__init__(self, debug, log, data_dir)
 
 	# fname contains texts
-	def parse_text_set(self, fname, res_fname):
+	def form_features(self, train_fname, target_fname, res_fname):
 		try:
-			f = open(fname, 'r')
+			linis_schema = self.get_schema(as_utf8=True)
+			linis_schema.append('target')
 
+			self.__print__('DEB', "storing schema to csv file")
+			#self.csv_writer_init(res_fname, linis_schema)
+
+			train_f = open(train_fname, 'r')
+			target_f = open(target_fname, 'r')
+
+			index = 0
 			text_features = []
-			for text in f.readline():
-				features = {}
-				print "process text"
-				sentences = self.text_to_sent(text, features)
-				features['text'] = sentences
-				text_features.append(features)
+			for text in train_f.readline():
+				target = float(target_f.readline().replace(',', '.'))
+
+				index += 1
+				if index % 100 == 0:
+					self.__print__('INF', "processed {} texts".format(index))
+
+				self.__print__('DEB', "process text {}".format(index))
+				features = self.text_to_features(text, as_utf8=True)
+				features['target'] = target
+
+				self.__print__('DEB', "storing features to csv file")
+				#self.csv_writer_insert_row(features)
+
 				break
 
-			f.close()
+			train_f.close()
+			target_f.close()
+			#self.writer_close()
+			self.__print__('INF', "done")
 
-			print "store as json"
-			self.store_as_json(text_features, res_fname)
 		except Exception as e:
 			self.__print__('ERR', str(e))
 			sys.exit(1)

@@ -45,6 +45,12 @@ class FeatureGetter(Logger):
 			self.__print__('ERR', str(e))
 			sys.exit(1)
 
+	def stat_reset(self):
+		for k in self.stat.keys():
+			self.stat[k] = 0
+
+		self.not_found_words.clear()
+
 	def read_json_texts(self, fname):
 		try:
 			f = open(fname, 'r')
@@ -55,25 +61,15 @@ class FeatureGetter(Logger):
 			print "ERR: unable to create AllSentence object: " + str(e)
 			sys.exit(1)
 
-	# values must be an array 
-	def store_as_csv(self, filename, features, values):
-		if type(values) != list or type(features) != list:
-			self.__print__('ERR', "incorrect arguments")
-			return
-
-		try:
-			f = open(filename, 'w')
-
-			writer = csv.DictWriter(f, fieldnames=features)
-			writer.writeheader()
-			writer.writerows(values)
-
-			f.close()
-		except Exception as e:
-			self.__print__('ERR', "unable to store as csv: " + str(e))
-
+	# TODO: add unfound words to features
 	def get_unfound_words_cnt(self):
 		return len(self.not_found_words.keys())
+
+	def get_unfound_percent(self):
+		if self.stat['all'] == 0:
+			return None
+
+		return float(self.stat['not_found']) / self.stat['all']
 
 	def print_stat(self):
 		for w in self.not_found_words.keys():
@@ -197,6 +193,26 @@ class FeatureGetter(Logger):
 			break
 
 		return features
+
+	def word_vec_senti_features(self, text, as_utf8=False):
+		features = {}
+		features.extend(self.text_to_word_vec(text, as_utf8))
+		features.extend(self.form_senti_features[text])
+
+	def get_word_vec_schema(self, as_utf8=False):
+		if as_utf8:
+			return [w.encode('utf-8') for w in self.word_vec.keys()]
+
+		return self.word_vec.keys()
+
+	def get_senti_schema(self):
+		return self.feature_schema
+
+	def get_schema(self, as_utf8=False):
+		schema = self.get_senti_schema()
+		schema.extend(self.get_word_vec_schema(as_utf8))
+
+		return schema
 
 	def store_train_set(self, feature_schema, train_fname, target_fname, res_fname):
 		try:
