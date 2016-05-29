@@ -19,6 +19,7 @@ class FeatureGetter(Logger):
 			'all': 0
 		}
 		self.doc_cnt = 38369
+		self.feature_schema = ['pos_sent', 'neg_sent', 'pos_weight', 'neg_weight']
 
 		if weight_func_type == 'tfidf':
 			self.weight_func = FeatureGetter.tfidf_weights
@@ -54,7 +55,7 @@ class FeatureGetter(Logger):
 			print "ERR: unable to create AllSentence object: " + str(e)
 			sys.exit(1)
 
-	# values must be an array of dict: [{'feature': value}] 
+	# values must be an array 
 	def store_as_csv(self, filename, features, values):
 		if type(values) != list or type(features) != list:
 			self.__print__('ERR', "incorrect arguments")
@@ -65,7 +66,7 @@ class FeatureGetter(Logger):
 
 			writer = csv.DictWriter(f, fieldnames=features)
 			writer.writeheader()
-			[writer.writerow(v) for v in values]
+			writer.writerows(values)
 
 			f.close()
 		except Exception as e:
@@ -120,19 +121,59 @@ class FeatureGetter(Logger):
 
 		return text_words
 
-	def text_to_word_vec(self, text):
-		word_weights = self.weight_func(self, text)
+	def text_to_word_vec(self, text, as_utf8=False):
+		text_words = self.weight_func(self, text)
 
-		word_features = [0] * len(self.word_vec.keys())
-		for w in word_weights.keys():
-			word_features[self.word_vec[w]] = word_weights[w]
+		if as_utf8 == False:
+			return text_words
 
-		return word_features
+		utf8_text_words = {}
+		for w in text_words.keys():
+			utf8_text_words[w.encode('utf-8')] = text_words[w]
 
-	# features schema = [{'name', 'type'}]
-	def form_features(self, features_schema, text_features):
+		return utf8_text_words
+
+	def form_senti_features(self, text):
+		features = {
+			'pos_sent': 0,
+			'pos_weight': 0,
+			'neg_sent': 0,
+			'neg_weight': 0
+		}
+
+		for sent in text:
+			sent_pos_weight = 0
+			sent_neg_weight = 0
+
+			for w in sent:
+				weight = self.freq_dict.senti_m_by_word(w)
+				if weight is None or weight == 0:
+					continue
+
+				if weight > 0:
+					sent_pos_weight += weight
+				else:
+					sent_neg_weight -= weight
+
+			features['pos_weight'] += sent_pos_weight
+			features['neg_weight'] += sent_neg_weight
+
+			if sent_pos_weight == sent_neg_weight:
+				continue
+
+			if sent_pos_weight > sent_neg_weight:
+				features['pos_sent'] += 1
+			else:
+				features['neg_sent'] += 1
+
+		features['pos_sent'] = float(features['pos_sent']) / len(text)
+		features['neg_sent'] = float(features['neg_sent']) / len(text)
+
+		return features
+
+	# features schema = [(name, type)}]
+	def form_features(self, features_schema, text_features, as_utf8=False):
 		features = []
-
 		text_index = 0
 		# store non-word features according to given
 		# features schema
@@ -143,22 +184,56 @@ class FeatureGetter(Logger):
 				continue
 
 			# collect given features
-			new_feature = []
-			for f in features_schema:
-				if f['name'] not in t.keys():
-					if f['type'] == 'str':
-						new_feature.append('')
-					else:
-						new_feature.append(0)
-				else:
-					new_feature.append(t[f['name']])
+			new_feature = {}
+			for f in features_schema.keys():
+				if f not in t.keys():
+					continue
+				new_feature[f] = t[f]
 
-			new_feature.extend(self.text_to_word_vec(t['text']))
+			new_feature.update(self.text_to_word_vec(t['text'], as_utf8))
+			new_feature.update(self.form_senti_features(t['text']))
 
 			features.append(new_feature)
-
-			# TODO: remove break
 			break
 
 		return features
+
+	def store_train_set(self, feature_schema, train_fname, target_fname, res_fname):
+		try:
+			f = open(target_fname, 'r')
+
+			target = []
+			self.__print__('DEB', "reading targets..")
+
+			for t in f.readline():
+				if t == '\n':
+					continue
+
+				target.append(float(t))
+			f.close()
+
+			self.__print__('DEB', "reading train texts..")
+			texts = self.read_json_texts(train_fname)
+
+			# TODO: uncomment
+			#assert(len(target) == len(texts))
+			self.__print__('DEB', "creating features..")
+			features = self.form_features(feature_schema, texts, as_utf8=True)
+
+			features_headers = feature_schema.keys()
+			# extend features with pos/neg features
+			features_headers.extend(self.feature_schema)
+			# store in utf-8 encoding for csv
+			features_headers.extend(w.encode('utf-8') for w in self.word_vec.keys())
+			features_headers.append('target')
+
+			self.__print__('DEB', "forming schema..")
+			for i in range(len(features)):
+				features[i].update({'target': target[i]})
+
+			self.__print__('DEB', "storing result as csv..")
+			self.store_as_csv(res_fname, features_headers, features)
+		except Exception as e:
+			self.__print__('ERR', str(e))
+			sys.exit(1)
 
