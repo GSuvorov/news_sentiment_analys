@@ -142,6 +142,19 @@ class NewsParser(TextParser):
 		self.compute_final_stat()
 		return texts_features
 
+	# TODO: add term and news agent info
+	def form_features(self, dir_data, res_fname):
+		news_schema = self.get_schema(as_utf8=True)
+		news_schema.append('target')
+
+		self.__print__('DEB', "storing schema to csv file")
+		self.csv_writer_init(res_fname, news_schema)
+
+
+
+
+
+
 	# ret values is [text: string, val]
 	def news_parse_from_file(self, fname):
 		try:

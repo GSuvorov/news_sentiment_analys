@@ -31,7 +31,7 @@ class TextParser(Logger):
 		self.tokenizer = Tokenizer(debug, log, data_dir, stop_words, punct, sent_end, abbr, senti_words)
 		self.stat['token_stat'] = self.tokenizer.get_token_stat_schema()
 
-		self.feature_creator = FeatureGetter(debug=self.debug)
+		self.feature_creator = FeatureGetter(debug=self.debug, weight_func_type="senti_trigram", range_val=2)
 
 		self.csv_writer = None
 		self.csv_writer_f = None

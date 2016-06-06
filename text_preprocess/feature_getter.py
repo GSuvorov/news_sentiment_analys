@@ -11,18 +11,24 @@ from freq_sent_dict import FreqSentDict
 
 class FeatureGetter(Logger):
 	def __init__(self, data_dir="data", log=None, debug=False, \
-				dict_obj="FreqSentDictObj", word_vec="word_vec.json", weight_func_type='tfidf'):
+				dict_obj="FreqSentDictObj", word_vec="word_vec.json", weight_func_type='tfidf', range_val=None):
 		Logger.__init__(self, log, debug)
 		self.not_found_words = {}
 		self.stat = {
 			'not_found': 0,
 			'all': 0
 		}
+		self.range_val = range_val
 		self.doc_cnt = 38369
 		self.feature_schema = ['pos_sent', 'neg_sent', 'pos_weight', 'neg_weight']
 
 		if weight_func_type == 'tfidf':
 			self.weight_func = FeatureGetter.tfidf_weights
+		elif weight_func_type == 'senti_trigram':
+			if self.range_val is None:
+				self.__print__('ERR', "range val is not setted")
+				sys.exit(1)
+			self.weight_func = FeatureGetter.senti_freq_weights
 		else:
 			self.__print__('ERR', "unknown weight function type ('{}')".format(weight_func_type))
 
@@ -42,7 +48,7 @@ class FeatureGetter(Logger):
 			self.freq_dict = pickle.load(f)
 			f.close()
 		except Exception as e:
-			self.__print__('ERR', str(e))
+			self.__print__('ERR', "unable to init: {}".format(str(e)))
 			sys.exit(1)
 
 	def stat_reset(self):
@@ -114,6 +120,148 @@ class FeatureGetter(Logger):
 			#print "TEST: {} -> {}".format(word.encode('utf-8'), text_words[word])
 
 		self.stat['all'] += total_words
+
+		return text_words
+
+	def senti_bigram(self, w1_val, w2_val):
+		G1 = w1_val['G']
+		if G1 == None:
+			G1 = 1
+		else:
+			G1 = float(G1) / 100
+
+		G2 = w2_val['G']
+		if G2 == None:
+			G2 = 1
+		else:
+			G2 = float(G2) / 100
+
+		M1 = w1_val['M']
+		D1 = w1_val['D']
+
+		M2 = w2_val['M']
+		D2 = w2_val['D']
+
+		if M1 == None and M2 == None:
+			# undef
+			if G1 == 1:
+				if G2 == 1:
+					return 0
+				return G2
+			else:
+				if G2 == 1:
+					return G1
+				return G1 * G2
+
+		if M1 == None:
+			return M2 * G2
+
+		if M2 == None:
+			return M1 * G1
+
+		if M1 == 0:
+			return M2 * G2
+
+		if M2 == 0:
+			return M1 * G1
+
+		if M1 * M2 > 0:
+			return float(M1 * G1 + M2 * G2) / 2
+
+		if D1 == 0:
+			D1 = abs(M1)
+
+		if D2 == 0:
+			D2 = abs(M2)
+
+		res = M2 * D2 * G1 + M1 * D1 * G2
+		res = float(res) / (D1 + D2)
+
+		if M1 > M2:
+			M_ = M1
+			M1 = M2
+			M2 = M_
+
+		res += M1
+
+		return res
+
+	def __get_senti_freq__(self, word):
+		M = self.freq_dict.senti_m_by_word(word)
+		if M != None:
+			D = self.freq_dict.senti_d_by_word(word)
+		else:
+			D = None
+
+		G = self.freq_dict.freq_d_by_word(word)
+
+		return {'M': M, 'D': D, 'G': G}
+
+	def senti_trigram(self, w1, w2, w3):
+		freq_sent_f = []
+		empty_w = {'M': None, 'D': None, 'G': 0}
+
+		if w1 != None:
+			freq_sent_f.append(self.__get_senti_freq__(w1))
+		else:
+			freq_sent_f.append(empty_w)
+
+		if w2 != None:
+			freq_sent_f.append(self.__get_senti_freq__(w2))
+		else:
+			freq_sent_f.append(empty_w)
+
+		if w3 != None:
+			freq_sent_f.append(self.__get_senti_freq__(w3))
+		else:
+			freq_sent_f.append(empty_w)
+
+		res = self.senti_bigram(freq_sent_f[0], freq_sent_f[1])
+		res += self.senti_bigram(freq_sent_f[1], freq_sent_f[2])
+
+		return res
+
+	def senti_freq_weights(self, text):
+		text_words = {}
+		text_freq_words = {}
+		total_words = 0
+		for sent in text:
+			for i in range(len(sent)):
+				word = sent[i]
+				w_prev = None
+				w_next = None
+				total_words += 1
+
+				docs = self.freq_dict.freq_docs_by_word(word)
+
+				if docs == None:
+					if word not in self.not_found_words.keys():
+						self.not_found_words[word] = 1
+					else:
+						self.not_found_words[word] = +1
+
+					self.stat['not_found'] +=1
+					continue
+
+				if i != 0:
+					w_prev = sent[i - 1]
+
+				if i < (len(sent) - 1):
+					w_next = sent[i + 1]
+
+				if word not in text_words.keys():
+					text_words[word] = self.senti_trigram(w_prev, word, w_next)
+				else:
+					text_words[word] += self.senti_trigram(w_prev, word, w_next)
+
+				if word not in text_freq_words.keys():
+					text_freq_words[word] = 1
+				else:
+					text_freq_words[word] += 1
+
+		for word in text_words.keys():
+			text_words[word] = float(text_words[word]) / (self.range_val * 2 * text_freq_words[word])
+			assert(text_words[word] <= 1)
 
 		return text_words
 
@@ -251,6 +399,6 @@ class FeatureGetter(Logger):
 			self.__print__('DEB', "storing result as csv..")
 			self.store_as_csv(res_fname, features_headers, features)
 		except Exception as e:
-			self.__print__('ERR', str(e))
+			self.__print__('ERR', "unable to store train set: {}".format(str(e)))
 			sys.exit(1)
 
