@@ -154,19 +154,19 @@ class FeatureGetter(Logger):
 				return G1 * G2
 
 		if M1 == None:
-			return M2 * G2
+			return M2
 
 		if M2 == None:
-			return M1 * G1
+			return M1
 
 		if M1 == 0:
-			return M2 * G2
+			return M2
 
 		if M2 == 0:
-			return M1 * G1
+			return M1
 
 		if M1 * M2 > 0:
-			return float(M1 * G1 + M2 * G2) / 2
+			return float(M1 + M2) / 2
 
 		if D1 == 0:
 			D1 = abs(M1)
