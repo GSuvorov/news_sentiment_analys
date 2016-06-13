@@ -5,6 +5,7 @@ sys.path.append("../util")
 from os import listdir
 from os.path import isfile, isdir, join
 
+import json
 from text_parser import TextParser
 from mongodb_connector import DBConnector
 
@@ -143,17 +144,69 @@ class NewsParser(TextParser):
 		return texts_features
 
 	# TODO: add term and news agent info
-	def form_features(self, dir_data, res_fname):
-		news_schema = self.get_schema(as_utf8=True)
-		news_schema.append('target')
+	def form_features(self, data_dir, res_fname):
+		if isdir(data_dir) == False:
+			print "ERR: {}is not directory".format(data_dir)
+			return
 
-		self.__print__('DEB', "storing schema to csv file")
-		self.csv_writer_init(res_fname, news_schema)
+		try:
+			news_schema = self.get_schema(as_utf8=True)
+			news_schema.append('target')
 
+			self.__print__('DEB', "storing schema to csv file")
+			self.csv_writer_init(res_fname, news_schema)
 
+			index = 0
+			pass_cnt = 0
+			limit = -1
+			text_features = []
+			for text_file in listdir(data_dir):
+				full_fname = join(data_dir, text_file)
+				if isfile(full_fname) == False:
+					continue
 
+				if text_file.find('json') == -1:
+					continue
 
+				print full_fname
 
+				json_f = open(full_fname, 'r')
+				train_json = json.load(json_f)
+				json_f.close()
+
+				for train_text in train_json:
+					text = train_text[0]
+					target = train_text[1]
+
+					print text[:100]
+					print target
+					print "===="
+
+					index += 1
+					if index % 100 == 0:
+						self.__print__('INF', "processed {} texts".format(index))
+
+					if index <= pass_cnt:
+						continue
+
+					self.__print__('DEB', "process text {}".format(index))
+					features = self.text_to_features(text, as_utf8=True)
+					if features is None:
+						continue
+
+					features['target'] = target
+
+					self.__print__('DEB', "storing features to csv file")
+					self.csv_writer_insert_row(features)
+
+					if index == limit:
+						break
+
+			self.csv_writer_close()
+			self.__print__('INF', "done")
+		except Exception as e:
+			self.__print__('ERR', str(e))
+			sys.exit(1)
 
 	# ret values is [text: string, val]
 	def news_parse_from_file(self, fname):
