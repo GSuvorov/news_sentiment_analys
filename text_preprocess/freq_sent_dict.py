@@ -104,6 +104,9 @@ class FreqSentDict():
 
 		return self.senti_dict[word]['D']
 
+	def senti_get_words(self):
+		return self.senti_dict.keys()
+
 	def freq_by_word(self, word):
 		if word not in self.freq_dict.keys():
 			return None
@@ -121,3 +124,6 @@ class FreqSentDict():
 			return None
 
 		return self.freq_dict[word]['FreqD']
+
+	def freq_get_words(self):
+		return self.freq_dict.keys()

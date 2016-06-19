@@ -2,7 +2,10 @@
 from __future__ import division
 import sys
 sys.path.append("../util")
+from os import listdir
+from os.path import isfile, isdir, join
 
+import json
 from text_parser import TextParser
 from mongodb_connector import DBConnector
 
@@ -139,6 +142,146 @@ class NewsParser(TextParser):
 		texts_features = self.get_news_texts(start_index, end_index)
 		self.compute_final_stat()
 		return texts_features
+
+	# TODO: add term and news agent info
+	def form_features(self, data_dir, res_fname):
+		if isdir(data_dir) == False:
+			print "ERR: {}is not directory".format(data_dir)
+			return
+
+		try:
+			news_schema = self.get_schema(as_utf8=True)
+			news_schema.append('target')
+
+			self.__print__('DEB', "storing schema to csv file")
+			self.csv_writer_init(res_fname, news_schema)
+
+			index = 0
+			pass_cnt = 0
+			limit = -1
+			text_features = []
+			for text_file in listdir(data_dir):
+				full_fname = join(data_dir, text_file)
+				if isfile(full_fname) == False:
+					continue
+
+				if text_file.find('json') == -1:
+					continue
+
+				print full_fname
+
+				json_f = open(full_fname, 'r')
+				train_json = json.load(json_f)
+				json_f.close()
+
+				for train_text in train_json:
+					text = train_text[0]
+					target = train_text[1]
+
+					print text[:100]
+					print target
+					print "===="
+
+					index += 1
+					if index % 100 == 0:
+						self.__print__('INF', "processed {} texts".format(index))
+
+					if index <= pass_cnt:
+						continue
+
+					self.__print__('DEB', "process text {}".format(index))
+					features = self.text_to_features(text, as_utf8=True)
+					if features is None:
+						continue
+
+					features['target'] = target
+
+					self.__print__('DEB', "storing features to csv file")
+					self.csv_writer_insert_row(features)
+
+					if index == limit:
+						break
+
+			self.csv_writer_close()
+			self.__print__('INF', "done")
+		except Exception as e:
+			self.__print__('ERR', str(e))
+			sys.exit(1)
+
+	# ret values is [text: string, val]
+	def news_parse_from_file(self, fname):
+		try:
+			f = open(fname, 'r')
+			results = []
+			all_texts = 0
+			text = None
+
+			for line in f.readlines():
+				line = line.replace("\n", '')
+				line = line.replace("\r", '')
+				index = line.find("Новость")
+				if index != -1:
+					text = ""
+					all_texts += 1
+					continue
+
+				index = line.find("Ответ:")
+				if index != -1:
+					if text == None or len(text) < 2 or (index + len("Ответ:") + 1) == len(line):
+						text = None
+						continue
+
+					try:
+						ans = float(line[index + len("Ответ:"):])
+						if len(text) > 128:
+							print "Text: " + text[:128]
+						else:
+							print "Text: " + text
+						print "ANS: "   + str(ans)
+						print "*******"
+						results.append([text.decode('utf-8'), ans])
+					except:
+						print "ERR: unable to convert to float: {}".format(line[index + len("Ответ: ")])
+
+					text = None
+					continue
+
+				if text == None:
+					continue
+
+				print line
+				if len(line) == 0 or line[0] == '=':
+					continue
+
+				text = text + line
+
+			print "STAT: found {} / {} answers".format(len(results), all_texts)
+
+			f.close()
+			return results
+		except Exception as e:
+			print "ERR: unable to parse news from file " + fname + ": " + str(e)
+
+	def experts_answers_parse(self, data_dir, res_dir):
+		try:
+			if isdir(data_dir) == False or isdir(res_dir) == False:
+				print "ERR: {}is not directory".format(data_dir)
+				return
+
+			f_cnt = 0
+			for text_file in listdir(data_dir):
+				full_fname = join(data_dir, text_file)
+				if isfile(full_fname) == False:
+					continue
+
+				f_cnt += 1
+				res_texts = self.news_parse_from_file(full_fname)
+				print "TEST: storing as json {} processed file".format(f_cnt)
+				self.store_as_json(res_texts, res_dir + "/{}.json".format(text_file.replace('.txt', '')))
+
+		except Exception as e:
+			self.__print__("ERR", "unable to parse experts answers " + str(e))
+
 
 	def store_into_file(self, filename, batch_size=0):
 		ext_index = filename.find('.txt')

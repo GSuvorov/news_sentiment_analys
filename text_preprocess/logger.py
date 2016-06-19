@@ -1,5 +1,6 @@
 # coding=utf-8
 from inspect import currentframe, getframeinfo
+import traceback
 import sys
 import time
 import datetime
@@ -19,8 +20,9 @@ class Logger():
 		else:
 			self.log.write("[{}]{}: {}\n".format(time_stmp, levl, msg))
 
-	def __init__(self, log=None):
+	def __init__(self, log=None, debug=False):
 		self.log = log
+		self.debug = debug
 		if self.log is None:
 			return
 
